@@ -55,6 +55,37 @@ export const StorageService = {
     return user;
   },
 
+  loginWithGoogle: (): User => {
+    // Simulating Google Auth Provider flow
+    const users = StorageService.getUsers();
+    // Check if we already have a google user registered
+    let googleUser = users.find(u => u.username === "Usuario Google");
+
+    if (!googleUser) {
+      // Register new Google User automatically
+      googleUser = {
+        id: 'google_' + Date.now().toString(),
+        username: "Usuario Google",
+        createdAt: new Date().toISOString()
+        // No password for OAuth users
+      };
+      users.push(googleUser);
+      localStorage.setItem(USERS_KEY, JSON.stringify(users));
+      
+      const initialData: UserData = {
+        videos: [],
+        plans: [],
+        strengthRecords: [],
+        competitionRecords: [],
+        trainingRecords: []
+      };
+      StorageService.saveUserData(googleUser.id, initialData);
+    }
+
+    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(googleUser));
+    return googleUser;
+  },
+
   logout: () => {
     localStorage.removeItem(CURRENT_USER_KEY);
   },
