@@ -16,6 +16,13 @@ export interface PlanFile {
   date: string;
 }
 
+// Helper for storing Plan metadata in localStorage (since we can't store full File objects easily)
+export interface PlanFileMetadata {
+  id: string;
+  name: string;
+  date: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'model';
@@ -37,4 +44,19 @@ export interface ThrowRecord {
   distance: number;
 }
 
-export type Screen = 'login' | 'dashboard' | 'gallery' | 'analyzer' | 'strength' | 'competition' | 'training' | 'planning' | 'planViewer' | 'coach';
+export interface User {
+  id: string;
+  username: string;
+  password?: string; // In a real app, never store raw passwords. This is for local demo only.
+  createdAt: string;
+}
+
+export interface UserData {
+  videos: VideoFile[];
+  plans: PlanFileMetadata[]; 
+  strengthRecords: StrengthRecord[];
+  competitionRecords: ThrowRecord[];
+  trainingRecords: ThrowRecord[];
+}
+
+export type Screen = 'login' | 'dashboard' | 'gallery' | 'analyzer' | 'strength' | 'competition' | 'training' | 'planning' | 'planViewer' | 'coach' | 'calculator';

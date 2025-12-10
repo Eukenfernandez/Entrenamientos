@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Screen } from '../types';
-import { LayoutDashboard, Video, Dumbbell, Target, MessageSquareQuote, LogOut, Trophy, FileText, X } from 'lucide-react';
+import { LayoutDashboard, Video, Dumbbell, Target, MessageSquareQuote, LogOut, Trophy, FileText, X, Calculator } from 'lucide-react';
 
 interface SidebarProps {
   currentScreen: Screen;
@@ -15,6 +15,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentScreen, onNavigate, onL
     { id: 'dashboard', label: 'Inicio', icon: LayoutDashboard },
     { id: 'gallery', label: 'Video Análisis', icon: Video },
     { id: 'strength', label: 'Fuerza & RM', icon: Dumbbell },
+    { id: 'calculator', label: 'Calculadora Discos', icon: Calculator },
     { id: 'planning', label: 'Entrenamientos', icon: FileText },
     { id: 'competition', label: 'Competiciones', icon: Trophy },
     { id: 'training', label: 'Práctica Técnica', icon: Target },

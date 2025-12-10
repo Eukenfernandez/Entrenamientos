@@ -11,11 +11,13 @@ import { TrainingTracker } from './components/TrainingTracker';
 import { PlanGallery } from './components/PlanGallery';
 import { PdfViewer } from './components/PdfViewer';
 import { CoachChat } from './components/CoachChat';
-import { Screen, VideoFile, StrengthRecord, ThrowRecord, PlanFile } from './types';
+import { PlateCalculator } from './components/PlateCalculator';
+import { Screen, VideoFile, StrengthRecord, ThrowRecord, PlanFile, User } from './types';
+import { StorageService } from './services/storageService';
 import { Menu } from 'lucide-react';
 
 export default function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentScreen, setCurrentScreen] = useState<Screen>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
@@ -34,14 +36,39 @@ export default function App() {
   const [competitionRecords, setCompetitionRecords] = useState<ThrowRecord[]>([]);
   const [trainingRecords, setTrainingRecords] = useState<ThrowRecord[]>([]);
 
-  const handleLogin = () => {
-    setIsLoggedIn(true);
+  // Init: Check for existing session
+  useEffect(() => {
+    const user = StorageService.getCurrentUser();
+    if (user) {
+      handleLogin(user);
+    }
+  }, []);
+
+  const handleLogin = (user: User) => {
+    setCurrentUser(user);
+    // Load User Data from "Database"
+    const data = StorageService.getUserData(user.id);
+    setStrengthRecords(data.strengthRecords || []);
+    setCompetitionRecords(data.competitionRecords || []);
+    setTrainingRecords(data.trainingRecords || []);
+    // Note: In this demo, videos/plans blob URLs might be expired if page refreshed, 
+    // but metadata is loaded.
+    setVideos(data.videos || []);
+    // Plans logic omitted for briefness as file objects don't persist well in local storage text
+    
     setCurrentScreen('dashboard');
   };
 
   const handleLogout = () => {
-    setIsLoggedIn(false);
+    StorageService.logout();
+    setCurrentUser(null);
     setCurrentScreen('login');
+    // Clear State
+    setVideos([]);
+    setPlans([]);
+    setStrengthRecords([]);
+    setCompetitionRecords([]);
+    setTrainingRecords([]);
   };
 
   // Navigation Logic
@@ -59,6 +86,8 @@ export default function App() {
   };
 
   const handleUploadVideo = (file: File, thumbnail: string) => {
+    if (!currentUser) return;
+    
     const objectUrl = URL.createObjectURL(file);
     const newVideo: VideoFile = {
       id: Date.now().toString(),
@@ -69,7 +98,10 @@ export default function App() {
       duration: '00:00', 
       isLocal: true
     };
-    setVideos(prev => [newVideo, ...prev]);
+    
+    const updatedVideos = [newVideo, ...videos];
+    setVideos(updatedVideos);
+    StorageService.updateVideos(currentUser.id, updatedVideos);
   };
 
   // Plan Handlers
@@ -81,6 +113,7 @@ export default function App() {
       date: new Date().toLocaleDateString()
     };
     setPlans(prev => [newPlan, ...prev]);
+    // Note: Not persisting PDF binaries to localStorage in this demo due to size limits.
   };
 
   const handleSelectPlan = (plan: PlanFile) => {
@@ -90,39 +123,58 @@ export default function App() {
 
   // Strength Handlers
   const handleAddStrength = (record: Omit<StrengthRecord, 'id'>) => {
-    setStrengthRecords(prev => [...prev, { ...record, id: Date.now().toString() }]);
+    if (!currentUser) return;
+    const newRecord = { ...record, id: Date.now().toString() };
+    const updated = [...strengthRecords, newRecord];
+    setStrengthRecords(updated);
+    StorageService.updateStrengthRecords(currentUser.id, updated);
   };
+  
   const handleDeleteStrength = (id: string) => {
-    setStrengthRecords(prev => prev.filter(r => r.id !== id));
+    if (!currentUser) return;
+    const updated = strengthRecords.filter(r => r.id !== id);
+    setStrengthRecords(updated);
+    StorageService.updateStrengthRecords(currentUser.id, updated);
   };
 
   // Competition Handlers 
   const handleAddCompetition = (record: Omit<ThrowRecord, 'id'>) => {
-    setCompetitionRecords(prev => [...prev, { ...record, id: Date.now().toString() }]);
+    if (!currentUser) return;
+    const newRecord = { ...record, id: Date.now().toString() };
+    const updated = [...competitionRecords, newRecord];
+    setCompetitionRecords(updated);
+    StorageService.updateCompetitionRecords(currentUser.id, updated);
   };
+  
   const handleDeleteCompetition = (id: string) => {
-    setCompetitionRecords(prev => prev.filter(r => r.id !== id));
+    if (!currentUser) return;
+    const updated = competitionRecords.filter(r => r.id !== id);
+    setCompetitionRecords(updated);
+    StorageService.updateCompetitionRecords(currentUser.id, updated);
   };
 
   // Training (Log) Handlers
   const handleAddTraining = (record: Omit<ThrowRecord, 'id'>) => {
-    setTrainingRecords(prev => [...prev, { ...record, id: Date.now().toString() }]);
+    if (!currentUser) return;
+    const newRecord = { ...record, id: Date.now().toString() };
+    const updated = [...trainingRecords, newRecord];
+    setTrainingRecords(updated);
+    StorageService.updateTrainingRecords(currentUser.id, updated);
   };
+  
   const handleDeleteTraining = (id: string) => {
-    setTrainingRecords(prev => prev.filter(r => r.id !== id));
+    if (!currentUser) return;
+    const updated = trainingRecords.filter(r => r.id !== id);
+    setTrainingRecords(updated);
+    StorageService.updateTrainingRecords(currentUser.id, updated);
   };
 
   // Global Click Handler for Mobile Menu Toggle
   const handleAppClick = (e: React.MouseEvent) => {
-    // Only apply logic on mobile screens
     if (window.innerWidth >= 768) return;
-    
-    // If menu is already open, ignore
     if (isMobileMenuOpen) return;
 
     const target = e.target as HTMLElement;
-
-    // Determine if the clicked element is "interactive"
     const isInteractive = target.closest('button') || 
                           target.closest('a') || 
                           target.closest('input') || 
@@ -131,35 +183,27 @@ export default function App() {
                           target.closest('video') || 
                           target.closest('[role="button"]');
 
-    // If user clicked background (not interactive), show the menu button temporarily
     if (!isInteractive) {
       setShowMobileMenuBtn(true);
-      
-      // Clear existing timer
       if (menuBtnTimerRef.current) {
         clearTimeout(menuBtnTimerRef.current);
       }
-      
-      // Hide after 3 seconds
       menuBtnTimerRef.current = setTimeout(() => {
         setShowMobileMenuBtn(false);
       }, 3000);
     }
   };
 
-  // Cleanup timer
   useEffect(() => {
     return () => {
       if (menuBtnTimerRef.current) clearTimeout(menuBtnTimerRef.current);
     };
   }, []);
 
-  // Render Logic
-  if (!isLoggedIn) {
+  if (!currentUser) {
     return <Login onLogin={handleLogin} />;
   }
 
-  // Use dvh for mobile viewport height to avoid address bar overlapping
   return (
     <div 
       className="flex h-[100dvh] w-full bg-neutral-950 text-white overflow-hidden font-sans relative"
@@ -183,12 +227,10 @@ export default function App() {
       {/* Mobile Sidebar Drawer */}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-50 flex md:hidden">
-          {/* Backdrop */}
           <div 
              className="absolute inset-0 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" 
              onClick={() => setIsMobileMenuOpen(false)}
           ></div>
-          {/* Sidebar */}
           <div className="relative w-3/4 max-w-xs h-full shadow-2xl animate-in slide-in-from-left duration-300">
              <Sidebar 
                 currentScreen={currentScreen} 
@@ -201,7 +243,6 @@ export default function App() {
       )}
 
       {/* Desktop Sidebar */}
-      {/* Hide sidebar completely when in Analyzer mode to give full screen to video */}
       <div className={`hidden md:block h-full flex-shrink-0 transition-all duration-300 ${currentScreen === 'analyzer' || currentScreen === 'planViewer' ? 'w-0 overflow-hidden' : 'w-64'}`}>
          <Sidebar 
             currentScreen={currentScreen} 
@@ -214,9 +255,11 @@ export default function App() {
       <main className="flex-1 h-full overflow-hidden relative bg-neutral-950">
         {currentScreen === 'dashboard' && (
           <Dashboard 
+             userName={currentUser.username}
              videos={videos} 
              strengthRecords={strengthRecords} 
              throwRecords={competitionRecords} 
+             trainingRecords={trainingRecords}
              onNavigate={navigateTo}
           />
         )}
@@ -273,6 +316,10 @@ export default function App() {
             onAddRecord={handleAddTraining}
             onDeleteRecord={handleDeleteTraining}
           />
+        )}
+
+        {currentScreen === 'calculator' && (
+          <PlateCalculator />
         )}
 
         {currentScreen === 'coach' && (
