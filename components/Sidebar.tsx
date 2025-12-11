@@ -29,7 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentScreen, onNavigate, onL
           <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center rotate-3">
              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
           </div>
-          <h1 className="text-xl font-bold text-white tracking-tight">Velocity<span className="text-orange-500">View</span></h1>
+          <h1 className="text-xl font-bold text-white tracking-tight">Coach <span className="text-orange-500">AI</span></h1>
         </div>
         {onClose && (
           <button onClick={onClose} className="md:hidden text-neutral-400 hover:text-white">

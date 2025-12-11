@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Login } from './components/Login';
 import { Onboarding } from './components/Onboarding';
 import { Sidebar } from './components/Sidebar';
@@ -13,19 +13,22 @@ import { PlanGallery } from './components/PlanGallery';
 import { PdfViewer } from './components/PdfViewer';
 import { CoachChat } from './components/CoachChat';
 import { PlateCalculator } from './components/PlateCalculator';
-import { Screen, VideoFile, StrengthRecord, ThrowRecord, PlanFile, User } from './types';
+import { Screen, VideoFile, StrengthRecord, ThrowRecord, PlanFile, User, ExerciseDef } from './types';
 import { StorageService } from './services/storageService';
-import { Menu } from 'lucide-react';
+import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentScreen, setCurrentScreen] = useState<Screen>('dashboard');
+  
+  // Navigation State
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
   
   // Mobile Menu Button Visibility State
   const [showMobileMenuBtn, setShowMobileMenuBtn] = useState(false);
   const menuBtnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  
+
   // Data States
   const [videos, setVideos] = useState<VideoFile[]>([]);
   const [selectedVideo, setSelectedVideo] = useState<VideoFile | null>(null);
@@ -36,6 +39,7 @@ export default function App() {
   const [strengthRecords, setStrengthRecords] = useState<StrengthRecord[]>([]);
   const [competitionRecords, setCompetitionRecords] = useState<ThrowRecord[]>([]);
   const [trainingRecords, setTrainingRecords] = useState<ThrowRecord[]>([]);
+  const [customExercises, setCustomExercises] = useState<ExerciseDef[]>([]);
 
   // Init: Check for existing session
   useEffect(() => {
@@ -60,6 +64,7 @@ export default function App() {
     setCompetitionRecords(data.competitionRecords || []);
     setTrainingRecords(data.trainingRecords || []);
     setVideos(data.videos || []);
+    setCustomExercises(data.customExercises || []);
     
     setCurrentScreen('dashboard');
   };
@@ -79,6 +84,7 @@ export default function App() {
     setStrengthRecords([]);
     setCompetitionRecords([]);
     setTrainingRecords([]);
+    setCustomExercises([]);
   };
 
   // Navigation Logic
@@ -153,6 +159,12 @@ export default function App() {
     StorageService.updateStrengthRecords(currentUser.id, updated);
   };
 
+  const handleUpdateExercises = (exercises: ExerciseDef[]) => {
+    if (!currentUser) return;
+    setCustomExercises(exercises);
+    StorageService.updateCustomExercises(currentUser.id, exercises);
+  };
+
   // Competition Handlers 
   const handleAddCompetition = (record: Omit<ThrowRecord, 'id'>) => {
     if (!currentUser) return;
@@ -185,8 +197,9 @@ export default function App() {
     StorageService.updateTrainingRecords(currentUser.id, updated);
   };
 
-  // Global Click Handler for Mobile Menu Toggle
+  // Global Click Handler for Mobile Menu Toggle Logic
   const handleAppClick = (e: React.MouseEvent) => {
+    // Only logic for mobile menu appearing/disappearing if needed
     if (window.innerWidth >= 768) return;
     if (isMobileMenuOpen) return;
 
@@ -224,26 +237,16 @@ export default function App() {
     return <Onboarding user={currentUser} onComplete={handleOnboardingComplete} />;
   }
 
+  // Determine if we should forcefully hide sidebar (e.g. in full screen tools)
+  const isFullScreenTool = currentScreen === 'analyzer' || currentScreen === 'planViewer';
+  const showSidebar = !isFullScreenTool && isDesktopSidebarOpen;
+
   return (
     <div 
       className="flex h-[100dvh] w-full bg-neutral-950 text-white overflow-hidden font-sans relative"
       onClick={handleAppClick}
     >
       
-      {/* Dynamic Floating Menu Button (Mobile Only) */}
-      <div 
-        className={`md:hidden fixed top-6 left-6 z-50 transition-all duration-500 ease-in-out ${
-          showMobileMenuBtn ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'
-        }`}
-      >
-         <button 
-            onClick={() => setIsMobileMenuOpen(true)}
-            className="p-3 bg-orange-600 text-white rounded-full shadow-[0_4px_20px_rgba(234,88,12,0.6)] hover:bg-orange-500 transition-transform transform active:scale-95 border border-orange-400/50"
-         >
-            <Menu size={24} />
-         </button>
-      </div>
-
       {/* Mobile Sidebar Drawer */}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-50 flex md:hidden">
@@ -262,8 +265,12 @@ export default function App() {
         </div>
       )}
 
-      {/* Desktop Sidebar */}
-      <div className={`hidden md:block h-full flex-shrink-0 transition-all duration-300 ${currentScreen === 'analyzer' || currentScreen === 'planViewer' ? 'w-0 overflow-hidden' : 'w-64'}`}>
+      {/* Desktop Sidebar (Collapsible) */}
+      <div 
+        className={`hidden md:block h-full flex-shrink-0 transition-all duration-300 ease-in-out ${
+          showSidebar ? 'w-64' : 'w-0 overflow-hidden'
+        }`}
+      >
          <Sidebar 
             currentScreen={currentScreen} 
             onNavigate={navigateTo} 
@@ -272,7 +279,39 @@ export default function App() {
       </div>
       
       {/* Main Content Area */}
-      <main className="flex-1 h-full overflow-hidden relative bg-neutral-950">
+      <main className="flex-1 h-full overflow-hidden relative bg-neutral-950 flex flex-col">
+        
+        {/* Toggle Button Area */}
+        {!isFullScreenTool && (
+          <>
+             {/* MOBILE TOGGLE (Always Visible when active or tapped) */}
+             <div 
+               className={`md:hidden absolute top-4 left-4 z-40 transition-all duration-500 ease-in-out ${
+                 showMobileMenuBtn ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'
+               }`}
+             >
+                <button 
+                   onClick={() => setIsMobileMenuOpen(true)}
+                   className="p-3 bg-neutral-900 border border-neutral-800 text-white rounded-xl shadow-lg hover:border-orange-500 transition-all"
+                >
+                   <Menu size={20} />
+                </button>
+             </div>
+
+             {/* DESKTOP TOGGLE (Invisible Trigger Zone) */}
+             {/* This creates a 100x100px area in top-left that reveals the button on hover */}
+             <div className="hidden md:flex absolute top-0 left-0 w-28 h-28 z-40 items-start justify-start p-6 opacity-0 hover:opacity-100 transition-opacity duration-300">
+                <button 
+                   onClick={() => setIsDesktopSidebarOpen(!isDesktopSidebarOpen)}
+                   className="p-2.5 bg-neutral-800/80 backdrop-blur-md border border-neutral-700 text-white rounded-xl shadow-2xl hover:bg-neutral-700 hover:scale-105 transition-all"
+                   title={isDesktopSidebarOpen ? "Ocultar menú lateral" : "Mostrar menú lateral"}
+                >
+                   {isDesktopSidebarOpen ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
+                </button>
+             </div>
+          </>
+        )}
+
         {currentScreen === 'dashboard' && (
           <Dashboard 
              userProfile={currentUser.profile}
@@ -320,6 +359,8 @@ export default function App() {
             records={strengthRecords}
             onAddRecord={handleAddStrength}
             onDeleteRecord={handleDeleteStrength}
+            exercises={customExercises}
+            onUpdateExercises={handleUpdateExercises}
           />
         )}
 

@@ -1,7 +1,8 @@
 {
-  "name": "VelocityView AI",
+  "name": "Coach AI",
   "description": "Slow-motion video analysis tool for sports with Gemini 3 Pro integration for technique feedback.",
   "requestFramePermissions": [
-    "microphone"
+    "microphone",
+    "camera"
   ]
 }

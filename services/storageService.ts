@@ -1,9 +1,20 @@
 
-import { User, UserData, VideoFile, StrengthRecord, ThrowRecord, PlanFileMetadata, UserProfile } from '../types';
+import { User, UserData, VideoFile, StrengthRecord, ThrowRecord, PlanFileMetadata, UserProfile, ExerciseDef } from '../types';
 
-const USERS_KEY = 'velocityview_users';
-const CURRENT_USER_KEY = 'velocityview_current_user';
-const DATA_PREFIX = 'velocityview_data_';
+const USERS_KEY = 'coachai_users';
+const CURRENT_USER_KEY = 'coachai_current_user';
+const DATA_PREFIX = 'coachai_data_';
+
+// Default exercises with units
+const DEFAULT_EXERCISES: ExerciseDef[] = [
+  { name: 'Press Banca', unit: 'kg' },
+  { name: 'Sentadilla', unit: 'kg' },
+  { name: 'Cargada', unit: 'kg' },
+  { name: 'Pull Over', unit: 'kg' },
+  { name: 'Arrancada', unit: 'kg' },
+  { name: 'Hip Thrust', unit: 'kg' },
+  { name: 'Salto Vertical', unit: 'cm' }
+];
 
 export const StorageService = {
   // --- AUTHENTICATION ---
@@ -52,7 +63,8 @@ export const StorageService = {
       plans: [],
       strengthRecords: [],
       competitionRecords: [],
-      trainingRecords: []
+      trainingRecords: [],
+      customExercises: DEFAULT_EXERCISES
     };
     StorageService.saveUserData(newUser.id, initialData);
 
@@ -115,7 +127,8 @@ export const StorageService = {
         plans: [],
         strengthRecords: [],
         competitionRecords: [],
-        trainingRecords: []
+        trainingRecords: [],
+        customExercises: DEFAULT_EXERCISES
       };
       StorageService.saveUserData(googleUser.id, initialData);
     }
@@ -165,10 +178,24 @@ export const StorageService = {
            plans: [],
            strengthRecords: [],
            competitionRecords: [],
-           trainingRecords: []
+           trainingRecords: [],
+           customExercises: DEFAULT_EXERCISES
          };
       }
-      return JSON.parse(dataJson);
+      const data = JSON.parse(dataJson);
+      
+      // MIGRATION: Ensure customExercises is in the new ExerciseDef[] format
+      if (!data.customExercises) {
+        data.customExercises = DEFAULT_EXERCISES;
+      } else if (data.customExercises.length > 0 && typeof data.customExercises[0] === 'string') {
+        // Migrate legacy string array to object array
+        data.customExercises = (data.customExercises as unknown as string[]).map(name => ({
+           name,
+           unit: name.toLowerCase().includes('salto') ? 'cm' : 'kg' // Simple heuristic for migration
+        }));
+      }
+
+      return data;
     } catch (e) {
       console.error("Error parsing user data", e);
       return {
@@ -176,7 +203,8 @@ export const StorageService = {
         plans: [],
         strengthRecords: [],
         competitionRecords: [],
-        trainingRecords: []
+        trainingRecords: [],
+        customExercises: DEFAULT_EXERCISES
       };
     }
   },
@@ -216,6 +244,12 @@ export const StorageService = {
   updateVideos: (userId: string, videos: VideoFile[]) => {
     const data = StorageService.getUserData(userId);
     data.videos = videos; 
+    StorageService.saveUserData(userId, data);
+  },
+
+  updateCustomExercises: (userId: string, exercises: ExerciseDef[]) => {
+    const data = StorageService.getUserData(userId);
+    data.customExercises = exercises;
     StorageService.saveUserData(userId, data);
   }
 };

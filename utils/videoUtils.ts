@@ -1,5 +1,19 @@
 
 /**
+ * Configuration for Camera Recording.
+ * Prioritizes 4K resolution (3840x2160) on the environment (back) camera.
+ * Browsers will fall back to the highest available resolution if 4K is not supported.
+ */
+export const CAMERA_CONSTRAINTS: MediaStreamConstraints = {
+  audio: true,
+  video: {
+    facingMode: 'environment', // Use back camera
+    width: { ideal: 3840 },    // Target 4K
+    height: { ideal: 2160 }
+  }
+};
+
+/**
  * Generates a thumbnail from the first frame (0.5s) of a video file.
  */
 export const generateVideoThumbnail = (file: File): Promise<string> => {
@@ -15,6 +29,7 @@ export const generateVideoThumbnail = (file: File): Promise<string> => {
 
     video.onseeked = () => {
       const canvas = document.createElement('canvas');
+      // The canvas will naturally adopt the video's resolution (e.g., 4K if recorded in 4K)
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');

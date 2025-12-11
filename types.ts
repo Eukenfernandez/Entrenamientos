@@ -33,7 +33,7 @@ export interface ChatMessage {
 export interface StrengthRecord {
   id: string;
   date: string;
-  exercise: 'Press Banca' | 'Sentadilla' | 'Cargada' | 'Pull Over' | 'Arrancada' | 'Hip Thrust';
+  exercise: string; // Changed from fixed union type to string to support custom exercises
   weight: number;
 }
 
@@ -63,12 +63,18 @@ export interface User {
   profile?: UserProfile;
 }
 
+export interface ExerciseDef {
+  name: string;
+  unit: string; // 'kg', 'lb', 'cm', 'm', 's', 'rep'
+}
+
 export interface UserData {
   videos: VideoFile[];
   plans: PlanFileMetadata[]; 
   strengthRecords: StrengthRecord[];
   competitionRecords: ThrowRecord[];
   trainingRecords: ThrowRecord[];
+  customExercises?: ExerciseDef[]; // Updated to store definition objects
 }
 
 export type Screen = 'login' | 'onboarding' | 'dashboard' | 'gallery' | 'analyzer' | 'strength' | 'competition' | 'training' | 'planning' | 'planViewer' | 'coach' | 'calculator';
