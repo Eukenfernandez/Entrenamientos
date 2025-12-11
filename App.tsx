@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Login } from './components/Login';
 import { Onboarding } from './components/Onboarding';
 import { Sidebar } from './components/Sidebar';
@@ -26,10 +26,6 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
   
-  // Mobile Menu Button Visibility State
-  const [showMobileMenuBtn, setShowMobileMenuBtn] = useState(false);
-  const menuBtnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   // Data States
   const [videos, setVideos] = useState<VideoFile[]>([]);
   const [selectedVideo, setSelectedVideo] = useState<VideoFile | null>(null);
@@ -244,37 +240,6 @@ export default function App() {
     await StorageService.updateTrainingRecords(currentUser.id, updated);
   };
 
-  // Global Click Handler for Mobile Menu Toggle Logic
-  const handleAppClick = (e: React.MouseEvent) => {
-    if (window.innerWidth >= 768) return;
-    if (isMobileMenuOpen) return;
-
-    const target = e.target as HTMLElement;
-    const isInteractive = target.closest('button') || 
-                          target.closest('a') || 
-                          target.closest('input') || 
-                          target.closest('select') || 
-                          target.closest('textarea') || 
-                          target.closest('video') || 
-                          target.closest('[role="button"]');
-
-    if (!isInteractive) {
-      setShowMobileMenuBtn(true);
-      if (menuBtnTimerRef.current) {
-        clearTimeout(menuBtnTimerRef.current);
-      }
-      menuBtnTimerRef.current = setTimeout(() => {
-        setShowMobileMenuBtn(false);
-      }, 3000);
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      if (menuBtnTimerRef.current) clearTimeout(menuBtnTimerRef.current);
-    };
-  }, []);
-
   if (!currentUser) {
     return <Login onLogin={handleLogin} />;
   }
@@ -294,10 +259,7 @@ export default function App() {
   const showSidebar = !isFullScreenTool && isDesktopSidebarOpen;
 
   return (
-    <div 
-      className="flex h-[100dvh] w-full bg-neutral-950 text-white overflow-hidden font-sans relative"
-      onClick={handleAppClick}
-    >
+    <div className="flex h-[100dvh] w-full bg-neutral-950 text-white overflow-hidden font-sans relative">
       
       {/* Mobile Sidebar Drawer */}
       {isMobileMenuOpen && (
@@ -336,17 +298,18 @@ export default function App() {
         {/* Toggle Button Area */}
         {!isFullScreenTool && (
           <>
-             {/* MOBILE TOGGLE (Always Visible when active or tapped) */}
+             {/* MOBILE TOGGLE (Permanent Bottom Left) */}
              <div 
-               className={`md:hidden absolute top-4 left-4 z-40 transition-all duration-500 ease-in-out ${
-                 showMobileMenuBtn ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'
+               className={`md:hidden fixed bottom-6 left-6 z-40 transition-opacity duration-300 ${
+                 isMobileMenuOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
                }`}
              >
                 <button 
                    onClick={() => setIsMobileMenuOpen(true)}
-                   className="p-3 bg-neutral-900 border border-neutral-800 text-white rounded-xl shadow-lg hover:border-orange-500 transition-all"
+                   className="p-3.5 bg-neutral-900/80 backdrop-blur-lg border border-neutral-700/50 text-white rounded-full shadow-[0_4px_20px_rgba(0,0,0,0.5)] hover:bg-neutral-800 hover:scale-105 transition-all"
+                   aria-label="Abrir menú"
                 >
-                   <Menu size={20} />
+                   <Menu size={24} />
                 </button>
              </div>
 
