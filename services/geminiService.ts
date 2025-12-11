@@ -9,7 +9,7 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
  */
 const getAIClient = () => {
   // Uses process.env.API_KEY as strictly required.
-  return new GoogleGenAI({ apiKey:import.meta.env.VITE_API_KEY   });
+  return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
 /**

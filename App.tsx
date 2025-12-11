@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Login } from './components/Login';
 import { Onboarding } from './components/Onboarding';
 import { Sidebar } from './components/Sidebar';
@@ -71,13 +71,15 @@ export default function App() {
     setCustomExercises(data.customExercises || []);
     
     // Hydrate Videos
-    // If Cloud Mode, we would ideally fetch from Storage URLs, 
-    // but for now we keep the hybrid approach: 
-    // Metadata from DB, Binary from IndexedDB (Local) or URL (Cloud).
     let loadedVideos = data.videos || [];
     if (loadedVideos.length > 0) {
       const hydrated = await Promise.all(loadedVideos.map(async (v) => {
-         // Try Local IndexedDB first (faster/offline)
+         // Priority 1: Cloud URL (if exists in v.url and starts with http)
+         if (v.url && v.url.startsWith('http')) {
+             return { ...v, isLocal: false };
+         }
+         
+         // Priority 2: Local IndexedDB
          try {
            const blob = await VideoStorage.getVideo(v.id);
            if (blob) {
@@ -86,7 +88,6 @@ export default function App() {
          } catch (e) {
            // If error or not found locally
          }
-         // If no local blob, v.url should hopefully be a remote URL (if implemented) or it remains invalid/placeholder
          return v;
       }));
       setVideos(hydrated);
@@ -134,25 +135,39 @@ export default function App() {
     
     const newId = Date.now().toString();
 
-    // 1. Save File to IndexedDB (Always for offline/fast access)
+    // 1. Save File to IndexedDB (Always for offline/fast access cache)
     try {
       await VideoStorage.saveVideo(newId, file);
     } catch (e) {
       console.error("Failed to save video to DB", e);
-      alert("Error guardando el video en el dispositivo.");
-      return;
     }
 
-    // 2. Create URL for current session
-    const objectUrl = URL.createObjectURL(file);
+    // 2. Determine Video URL (Local vs Cloud)
+    let finalVideoUrl = URL.createObjectURL(file);
+    let isCloudUrl = false;
+
+    if (StorageService.isCloudMode()) {
+       // Upload to Firebase Storage
+       try {
+          const cloudUrl = await StorageService.uploadFile(currentUser.id, file);
+          if (cloudUrl) {
+             finalVideoUrl = cloudUrl;
+             isCloudUrl = true;
+          }
+       } catch (e) {
+          console.error("Cloud upload failed, falling back to local", e);
+          alert("Error subiendo a la nube. Se guardará localmente.");
+       }
+    }
+
     const newVideo: VideoFile = {
       id: newId,
-      url: objectUrl,
+      url: finalVideoUrl,
       thumbnail: thumbnail, 
       name: file.name,
       date: new Date().toLocaleDateString() + ', ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       duration: '00:00', 
-      isLocal: true
+      isLocal: !isCloudUrl
     };
     
     const updatedVideos = [newVideo, ...videos];

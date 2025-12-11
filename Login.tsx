@@ -100,17 +100,22 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
         <div className="space-y-4">
           
           {/* Manual Login Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             <div className="space-y-1">
                <label className="text-xs text-neutral-400 ml-1">Correo o Usuario</label>
                <div className="relative">
                   <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500" size={18} />
                   <input 
                     type="text" 
+                    name="username"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="w-full bg-black/50 border border-neutral-700 rounded-xl py-3 pl-11 pr-4 text-white placeholder-neutral-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all"
                     placeholder="Usuario"
+                    autoCapitalize="none"
+                    autoComplete="username"
+                    autoCorrect="off"
+                    spellCheck="false"
                   />
                </div>
             </div>
@@ -121,10 +126,15 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500" size={18} />
                   <input 
                     type="password" 
+                    name="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full bg-black/50 border border-neutral-700 rounded-xl py-3 pl-11 pr-4 text-white placeholder-neutral-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all"
                     placeholder="••••••••"
+                    autoCapitalize="none"
+                    autoComplete="current-password"
+                    autoCorrect="off"
+                    spellCheck="false"
                   />
                </div>
             </div>

@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { User, UserProfile, SportType } from '../types';
 import { StorageService } from '../services/storageService';
@@ -47,11 +46,11 @@ export const Onboarding: React.FC<OnboardingProps> = ({ user, onComplete }) => {
     }
   };
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
     if (formData.firstName && formData.lastName && formData.age && formData.sport && formData.discipline) {
       const profile = formData as UserProfile;
       try {
-        const updatedUser = StorageService.updateUserProfile(user.id, profile);
+        const updatedUser = await StorageService.updateUserProfile(user.id, profile);
         onComplete(updatedUser);
       } catch (e) {
         console.error("Failed to save profile", e);

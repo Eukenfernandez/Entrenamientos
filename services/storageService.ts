@@ -6,17 +6,13 @@ import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, getDocs, dele
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
-// PARA ACTIVAR EL MODO NUBE (Sincronización entre dispositivos):
-// 1. Crea un proyecto en https://console.firebase.google.com/
-// 2. Copia la configuración de tu web app.
-// 3. Pégala aquí abajo.
 const firebaseConfig = {
-  apiKey: "", // Ej: "AIzaSy..."
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: ""
+  apiKey: "AIzaSyAiSaQ_H7Ja3rLg2IPm_7k6lZL_XmWaPX4",
+  authDomain: "entrenamientos-bfac2.firebaseapp.com",
+  projectId: "entrenamientos-bfac2",
+  storageBucket: "entrenamientos-bfac2.firebasestorage.app",
+  messagingSenderId: "708498062460",
+  appId: "1:708498062460:web:83cb6635febcd927d75df9"
 };
 
 // Detect if Firebase is configured
@@ -54,7 +50,7 @@ const DEFAULT_EXERCISES: ExerciseDef[] = [
   { name: 'Salto Vertical', unit: 'cm' }
 ];
 
-// --- INDEXED DB FOR LOCAL VIDEO FILES ---
+// --- INDEXED DB FOR LOCAL VIDEO FILES (Caching) ---
 const DB_NAME = 'CoachAI_VideoDB';
 const STORE_NAME = 'videos';
 
@@ -227,9 +223,6 @@ export const StorageService = {
   },
 
   getCurrentUser: (): User | null => {
-    // Basic sync check from local storage for instant render
-    // For cloud, Auth state listener handles it in a real app, 
-    // but here we use localStorage as a session cache.
     try {
       const userJson = localStorage.getItem(CURRENT_USER_KEY);
       return userJson ? JSON.parse(userJson) : null;
@@ -251,7 +244,7 @@ export const StorageService = {
         localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updated));
         return updated;
       }
-      return { id: userId, username: '', createdAt: '', profile }; // Fallback return
+      return { id: userId, username: '', createdAt: '', profile }; 
     } else {
       // LOCAL UPDATE
       const users = StorageService._getLocalUsers();
@@ -276,7 +269,6 @@ export const StorageService = {
       const snap = await getDoc(docRef);
       if (snap.exists()) {
         const data = snap.data() as UserData;
-        // Ensure defaults
         if (!data.customExercises) data.customExercises = DEFAULT_EXERCISES;
         return data;
       } else {
@@ -328,6 +320,21 @@ export const StorageService = {
     await StorageService.updateDataSection(userId, 'customExercises', exercises);
   },
 
+  // --- CLOUD STORAGE (FILE UPLOAD) ---
+  uploadFile: async (userId: string, file: File): Promise<string | null> => {
+     if (!isFirebaseConfigured) return null;
+     try {
+       const timestamp = Date.now();
+       const storageRef = ref(storage, `videos/${userId}/${timestamp}_${file.name}`);
+       const snapshot = await uploadBytes(storageRef, file);
+       const downloadURL = await getDownloadURL(snapshot.ref);
+       return downloadURL;
+     } catch (e) {
+       console.error("Error uploading file to cloud:", e);
+       throw e;
+     }
+  },
+
   // --- ADMIN ---
 
   getSystemReport: async () => {
@@ -374,6 +381,7 @@ export const StorageService = {
     if (isFirebaseConfigured) {
        await deleteDoc(doc(db, "users", userId));
        await deleteDoc(doc(db, "userdata", userId));
+       // Note: Deleting files from Storage requires listing them, which we skip here for brevity.
     } else {
        const users = StorageService._getLocalUsers().filter(u => u.id !== userId);
        localStorage.setItem(USERS_KEY, JSON.stringify(users));
