@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { StorageService } from '../services/storageService';
+import { StorageService, VideoStorage } from '../services/storageService';
 import { User, UserData, StrengthRecord, ThrowRecord, VideoFile } from '../types';
 import { Shield, Users, Database, LogOut, Search, Trash2, Video, Dumbbell, FileText, ChevronLeft, MapPin, Calendar, Trophy, Target, Play, X } from 'lucide-react';
 
@@ -39,11 +39,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
     setUsers(report);
   };
 
-  const handleUserClick = (user: User) => {
+  const handleUserClick = async (user: User) => {
     const data = StorageService.getUserData(user.id);
+
+    // Hydrate Videos from IndexedDB so they can be played
+    if (data.videos && data.videos.length > 0) {
+        const hydratedVideos = await Promise.all(data.videos.map(async (v) => {
+            try {
+                const blob = await VideoStorage.getVideo(v.id);
+                if (blob) {
+                    return { ...v, url: URL.createObjectURL(blob) };
+                }
+            } catch (e) {
+                console.error("Could not hydrate video for admin", v.id, e);
+            }
+            return v;
+        }));
+        data.videos = hydratedVideos;
+    }
+
     setSelectedUser(user);
     setSelectedUserData(data);
-    // No need for window.scrollTo(0,0) if we use a scroll container, we might scroll the container top though
   };
 
   const handleBackToList = () => {

@@ -15,7 +15,7 @@ import { CoachChat } from './components/CoachChat';
 import { PlateCalculator } from './components/PlateCalculator';
 import { AdminPanel } from './components/AdminPanel'; // Import new admin panel
 import { Screen, VideoFile, StrengthRecord, ThrowRecord, PlanFile, User, ExerciseDef } from './types';
-import { StorageService } from './services/storageService';
+import { StorageService, VideoStorage } from './services/storageService';
 import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 export default function App() {
@@ -50,7 +50,7 @@ export default function App() {
     }
   }, []);
 
-  const handleLogin = (user: User) => {
+  const handleLogin = async (user: User) => {
     setCurrentUser(user);
     
     // --- ADMIN CHECK ---
@@ -71,8 +71,26 @@ export default function App() {
     setStrengthRecords(data.strengthRecords || []);
     setCompetitionRecords(data.competitionRecords || []);
     setTrainingRecords(data.trainingRecords || []);
-    setVideos(data.videos || []);
     setCustomExercises(data.customExercises || []);
+    
+    // Hydrate Videos from IndexedDB
+    let loadedVideos = data.videos || [];
+    if (loadedVideos.length > 0) {
+      const hydrated = await Promise.all(loadedVideos.map(async (v) => {
+         try {
+           const blob = await VideoStorage.getVideo(v.id);
+           if (blob) {
+             return { ...v, url: URL.createObjectURL(blob) };
+           }
+         } catch (e) {
+            console.error("Could not load video blob", v.id, e);
+         }
+         return v;
+      }));
+      setVideos(hydrated);
+    } else {
+      setVideos([]);
+    }
     
     setCurrentScreen('dashboard');
   };
@@ -109,12 +127,24 @@ export default function App() {
     setCurrentScreen('analyzer');
   };
 
-  const handleUploadVideo = (file: File, thumbnail: string) => {
+  const handleUploadVideo = async (file: File, thumbnail: string) => {
     if (!currentUser) return;
     
+    const newId = Date.now().toString();
+
+    // 1. Save File to IndexedDB
+    try {
+      await VideoStorage.saveVideo(newId, file);
+    } catch (e) {
+      console.error("Failed to save video to DB", e);
+      alert("Error guardando el video en el dispositivo. Intenta de nuevo.");
+      return;
+    }
+
+    // 2. Create URL for current session
     const objectUrl = URL.createObjectURL(file);
     const newVideo: VideoFile = {
-      id: Date.now().toString(),
+      id: newId,
       url: objectUrl,
       thumbnail: thumbnail, 
       name: file.name,
@@ -128,8 +158,11 @@ export default function App() {
     StorageService.updateVideos(currentUser.id, updatedVideos);
   };
 
-  const handleDeleteVideo = (id: string) => {
+  const handleDeleteVideo = async (id: string) => {
     if (!currentUser) return;
+    
+    await VideoStorage.deleteVideo(id); // Delete from DB
+
     const updatedVideos = videos.filter(v => v.id !== id);
     setVideos(updatedVideos);
     StorageService.updateVideos(currentUser.id, updatedVideos);

@@ -16,6 +16,59 @@ const DEFAULT_EXERCISES: ExerciseDef[] = [
   { name: 'Salto Vertical', unit: 'cm' }
 ];
 
+// --- INDEXED DB FOR VIDEO FILES ---
+const DB_NAME = 'CoachAI_VideoDB';
+const STORE_NAME = 'videos';
+
+export const VideoStorage = {
+  openDB: (): Promise<IDBDatabase> => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, 1);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+      request.onupgradeneeded = (e) => {
+        const db = (e.target as IDBOpenDBRequest).result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME);
+        }
+      };
+    });
+  },
+
+  saveVideo: async (id: string, blob: Blob): Promise<void> => {
+    const db = await VideoStorage.openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.put(blob, id);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  },
+
+  getVideo: async (id: string): Promise<Blob | null> => {
+    const db = await VideoStorage.openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.get(id);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => resolve(null); // Return null gracefully on error
+    });
+  },
+
+  deleteVideo: async (id: string): Promise<void> => {
+    const db = await VideoStorage.openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.delete(id);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+};
+
 export const StorageService = {
   // --- AUTHENTICATION ---
 
