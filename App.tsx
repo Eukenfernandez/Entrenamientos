@@ -13,6 +13,7 @@ import { PlanGallery } from './components/PlanGallery';
 import { PdfViewer } from './components/PdfViewer';
 import { CoachChat } from './components/CoachChat';
 import { PlateCalculator } from './components/PlateCalculator';
+import { AdminPanel } from './components/AdminPanel'; // Import new admin panel
 import { Screen, VideoFile, StrengthRecord, ThrowRecord, PlanFile, User, ExerciseDef } from './types';
 import { StorageService } from './services/storageService';
 import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
@@ -52,6 +53,13 @@ export default function App() {
   const handleLogin = (user: User) => {
     setCurrentUser(user);
     
+    // --- ADMIN CHECK ---
+    if (user.profile?.role === 'admin') {
+      setCurrentScreen('admin_panel');
+      return;
+    }
+    // -------------------
+
     // Check if profile exists, if not, go to onboarding
     if (!user.profile) {
       setCurrentScreen('onboarding');
@@ -232,6 +240,12 @@ export default function App() {
   if (!currentUser) {
     return <Login onLogin={handleLogin} />;
   }
+
+  // --- ADMIN RENDER ---
+  if (currentScreen === 'admin_panel') {
+    return <AdminPanel onLogout={handleLogout} />;
+  }
+  // --------------------
 
   if (currentScreen === 'onboarding') {
     return <Onboarding user={currentUser} onComplete={handleOnboardingComplete} />;

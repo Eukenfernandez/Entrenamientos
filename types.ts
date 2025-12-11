@@ -50,7 +50,7 @@ export interface UserProfile {
   firstName: string;
   lastName: string;
   age: number;
-  role: 'athlete' | 'coach';
+  role: 'athlete' | 'coach' | 'admin';
   sport: SportType;
   discipline: string; // Specific name e.g., "60m", "Javelin", "Long Jump"
 }
@@ -77,4 +77,4 @@ export interface UserData {
   customExercises?: ExerciseDef[]; // Updated to store definition objects
 }
 
-export type Screen = 'login' | 'onboarding' | 'dashboard' | 'gallery' | 'analyzer' | 'strength' | 'competition' | 'training' | 'planning' | 'planViewer' | 'coach' | 'calculator';
+export type Screen = 'login' | 'onboarding' | 'dashboard' | 'gallery' | 'analyzer' | 'strength' | 'competition' | 'training' | 'planning' | 'planViewer' | 'coach' | 'calculator' | 'admin_panel';
