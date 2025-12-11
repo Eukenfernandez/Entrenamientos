@@ -4,7 +4,8 @@ import { VideoFile, ChatMessage } from '../types';
 import { analyzeFrame } from '../services/geminiService';
 import { 
   Play, Pause, ChevronLeft, ChevronRight, X, 
-  Maximize2, RotateCcw, MessageSquare, Send, Loader2 
+  Maximize2, RotateCcw, MessageSquare, Send, Loader2,
+  ZoomIn, ZoomOut, Move, PenTool, Trash2, Eraser
 } from 'lucide-react';
 
 interface VideoAnalyzerProps {
@@ -12,13 +13,30 @@ interface VideoAnalyzerProps {
   onBack: () => void;
 }
 
+interface Line {
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+  color: string;
+}
+
+const DRAWING_COLORS = [
+  { id: 'red', hex: '#ef4444' },
+  { id: 'yellow', hex: '#eab308' },
+  { id: 'green', hex: '#22c55e' },
+  { id: 'blue', hex: '#3b82f6' },
+];
+
 export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Video State
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1.0);
+  
+  // AI Chat State
   const [showChat, setShowChat] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -30,6 +48,19 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
     }
   ]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // Zoom & Pan State
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDraggingPan, setIsDraggingPan] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  // Drawing State
+  const [isDrawingMode, setIsDrawingMode] = useState(false);
+  const [selectedColor, setSelectedColor] = useState(DRAWING_COLORS[0].hex);
+  const [lines, setLines] = useState<Line[]>([]);
+  const [currentLine, setCurrentLine] = useState<Line | null>(null);
+  const [isDrawingLine, setIsDrawingLine] = useState(false);
 
   // Initialize video
   useEffect(() => {
@@ -51,47 +82,49 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
     };
   }, []);
 
+  // Reset View & Drawings on video change
+  useEffect(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setLines([]);
+    setIsDrawingMode(false);
+  }, [video.id]);
+
   // Keyboard Navigation Handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Do not trigger if user is typing in the chat input
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
-
       if (!videoRef.current) return;
 
-      // Adjusted step: 0.05s (50ms). 
-      // Previously 0.01s was too slow. 0.05s is roughly 1-2 frames depending on fps.
-      const microStep = 0.07; 
+      const microStep = 0.033; // ~30fps frame
 
       if (e.key === 'ArrowRight') {
         e.preventDefault();
-        // Pause if playing to ensure precise stop
-        if (!videoRef.current.paused) {
-          videoRef.current.pause();
-          setIsPlaying(false);
-        }
+        videoRef.current.pause();
+        setIsPlaying(false);
         videoRef.current.currentTime = Math.min(videoRef.current.duration, videoRef.current.currentTime + microStep);
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        if (!videoRef.current.paused) {
-          videoRef.current.pause();
-          setIsPlaying(false);
-        }
+        videoRef.current.pause();
+        setIsPlaying(false);
         videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - microStep);
       } else if (e.key === ' ') {
-        // Spacebar to toggle play
         e.preventDefault();
         togglePlay();
+      } else if (e.key === 'Escape') {
+        if (isDrawingMode) setIsDrawingMode(false);
+        else if (showChat) setShowChat(false);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []); // No dependencies needed as we use ref for video logic
+  }, [isDrawingMode, showChat]);
 
-  // Play/Pause toggle
+  // --- Handlers ---
+
   const togglePlay = () => {
     if (!videoRef.current) return;
     if (videoRef.current.paused) {
@@ -103,7 +136,6 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
     }
   };
 
-  // Seek handler
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const time = parseFloat(e.target.value);
     if (videoRef.current) {
@@ -112,7 +144,6 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
     }
   };
 
-  // Frame step (approx 30fps) for UI buttons
   const stepFrame = (direction: 'forward' | 'backward') => {
     if (!videoRef.current) return;
     const frameTime = 1 / 30; 
@@ -123,7 +154,6 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
     videoRef.current.currentTime += direction === 'forward' ? frameTime : -frameTime;
   };
 
-  // Speed change
   const cycleSpeed = () => {
     if (!videoRef.current) return;
     const rates = [1.0, 0.5, 0.25, 0.1];
@@ -133,7 +163,120 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
     videoRef.current.playbackRate = newRate;
   };
 
-  // AI Analysis Logic
+  // --- Coordinate Calculation Helper ---
+  // Transforms screen mouse coordinates into the zoomed/panned coordinate space of the video
+  const getLocalCoordinates = (clientX: number, clientY: number) => {
+    if (!containerRef.current) return { x: 0, y: 0 };
+    const rect = containerRef.current.getBoundingClientRect();
+    
+    // Logic: 
+    // Screen Coordinate = (Local Coordinate * Zoom) + Pan + ContainerOffset
+    // Therefore: Local Coordinate = (Screen Coordinate - ContainerOffset - Pan) / Zoom
+    
+    return {
+      x: (clientX - rect.left - pan.x) / zoom,
+      y: (clientY - rect.top - pan.y) / zoom
+    };
+  };
+
+  // --- Interaction Logic (Draw vs Pan) ---
+  
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (showChat) return; 
+
+    // DRAWING LOGIC
+    if (isDrawingMode) {
+      e.preventDefault(); // Prevent text selection etc
+      const coords = getLocalCoordinates(e.clientX, e.clientY);
+      setIsDrawingLine(true);
+      setCurrentLine({
+        start: coords,
+        end: coords, // Initially start and end are same
+        color: selectedColor
+      });
+      return;
+    }
+
+    // PANNING LOGIC (Only if zoomed in)
+    if (zoom > 1) {
+      e.preventDefault();
+      setIsDraggingPan(true);
+      setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    // DRAWING UPDATE
+    if (isDrawingLine && currentLine) {
+      const coords = getLocalCoordinates(e.clientX, e.clientY);
+      setCurrentLine({
+        ...currentLine,
+        end: coords
+      });
+      return;
+    }
+
+    // PANNING UPDATE
+    if (isDraggingPan && zoom > 1) {
+      e.preventDefault();
+      setPan({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y
+      });
+    }
+  };
+
+  const handleMouseUp = () => {
+    // FINISH DRAWING
+    if (isDrawingLine && currentLine) {
+      // Only add if it has some length
+      const dx = currentLine.start.x - currentLine.end.x;
+      const dy = currentLine.start.y - currentLine.end.y;
+      if (Math.sqrt(dx*dx + dy*dy) > 2) {
+         setLines(prev => [...prev, currentLine]);
+      }
+      setCurrentLine(null);
+      setIsDrawingLine(false);
+    }
+
+    // FINISH PANNING
+    setIsDraggingPan(false);
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    if (showChat) return;
+    // e.preventDefault(); // React synthetic events can't preventDefault on passive listeners sometimes, handled via style usually
+    
+    const scaleAmount = -e.deltaY * 0.001;
+    const newZoom = Math.min(Math.max(1, zoom + scaleAmount * 5), 8);
+    
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      
+      // Calculate mouse position relative to the container (0,0 is top-left of container)
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      // Smart Zoom Logic:
+      // We want the point under the mouse to remain stationary after the zoom.
+      // (mouseX - oldPan) / oldZoom  ===  (mouseX - newPan) / newZoom
+      // Solving for newPan:
+      // newPan = mouseX - (mouseX - oldPan) * (newZoom / oldZoom)
+
+      const newPanX = mouseX - (mouseX - pan.x) * (newZoom / zoom);
+      const newPanY = mouseY - (mouseY - pan.y) * (newZoom / zoom);
+
+      setPan({ x: newPanX, y: newPanY });
+      setZoom(newZoom);
+      
+      // Reset if zoomed out completely
+      if (newZoom === 1) {
+         setPan({ x: 0, y: 0 });
+      }
+    }
+  };
+
+  // --- AI Analysis ---
   const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!chatInput.trim() || isAnalyzing || !videoRef.current) return;
@@ -149,15 +292,11 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
     setIsAnalyzing(true);
 
     try {
-      // Capture frame
       const canvas = document.createElement('canvas');
-      // Capture at native resolution for maximum quality
       canvas.width = videoRef.current.videoWidth;
       canvas.height = videoRef.current.videoHeight;
       const ctx = canvas.getContext('2d');
       ctx?.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      
-      // High quality JPEG (0.98)
       const base64Image = canvas.toDataURL('image/jpeg', 0.98).split(',')[1]; 
 
       const history = messages.map(m => `${m.role}: ${m.text}`);
@@ -170,7 +309,6 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
         timestamp: new Date()
       };
       setMessages(prev => [...prev, aiMsg]);
-
     } catch (error) {
       console.error(error);
     } finally {
@@ -178,7 +316,6 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
     }
   };
 
-  // Render "Ticks" for the visual timeline
   const renderTicks = () => {
     return (
       <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 flex justify-between px-1 pointer-events-none opacity-50">
@@ -193,44 +330,155 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
   };
 
   return (
-    <div className="flex h-full w-full bg-black relative overflow-hidden">
+    <div className="flex h-full w-full bg-black relative overflow-hidden select-none">
       {/* Main Content */}
       <div className={`flex-1 flex flex-col relative transition-all duration-300 ${showChat ? 'lg:mr-80' : 'mr-0'} h-full`}>
         
         {/* Header Overlay */}
-        <div className="absolute top-0 left-0 right-0 z-10 p-2 md:p-4 flex justify-between items-start bg-gradient-to-b from-black/90 to-transparent pointer-events-none">
-          <button onClick={onBack} className="pointer-events-auto text-white/80 hover:text-white flex items-center gap-2 bg-black/40 p-2 rounded-full backdrop-blur-sm md:bg-transparent md:p-0 md:backdrop-blur-none transition-colors">
+        <div className="absolute top-0 left-0 right-0 z-10 p-2 md:p-4 flex justify-between items-start pointer-events-none">
+          {/* Top Left: Back Button */}
+          <button onClick={onBack} className="pointer-events-auto text-white/80 hover:text-white flex items-center gap-2 bg-black/40 p-2 rounded-full backdrop-blur-sm transition-colors">
             <ChevronLeft size={20} className="md:w-6 md:h-6" />
-            <span className="font-medium hidden md:inline">Volver a la galería</span>
           </button>
           
-          <div className="text-center pointer-events-auto bg-black/40 px-3 py-1 rounded-full backdrop-blur-sm md:bg-transparent md:p-0">
-            <h2 className="text-sm md:text-lg font-semibold truncate max-w-[150px] md:max-w-none">{video.name}</h2>
-            <p className="text-[10px] md:text-xs text-neutral-400">{video.date}</p>
+          {/* Top Center: Tools (Title, Pen, etc) */}
+          <div className="pointer-events-auto flex items-center gap-2 bg-black/60 p-1.5 rounded-xl backdrop-blur-md border border-white/10 shadow-lg">
+             <div className="px-3 border-r border-white/10">
+               <h2 className="text-sm font-semibold truncate max-w-[100px] md:max-w-xs">{video.name}</h2>
+             </div>
+             
+             {/* Drawing Tools Toggle */}
+             <button 
+                onClick={() => setIsDrawingMode(!isDrawingMode)}
+                className={`p-2 rounded-lg transition-all flex items-center gap-2 ${isDrawingMode ? 'bg-orange-600 text-white' : 'hover:bg-white/10 text-neutral-300'}`}
+                title="Herramienta de Dibujo"
+             >
+                <PenTool size={18} />
+                {isDrawingMode && <span className="text-xs font-bold uppercase hidden md:inline">Dibujando</span>}
+             </button>
+
+             {/* Color Picker (Visible only when drawing) */}
+             {isDrawingMode && (
+               <div className="flex items-center gap-1.5 px-2 animate-in fade-in slide-in-from-left-2 duration-200 border-l border-white/10">
+                  {DRAWING_COLORS.map(c => (
+                     <button
+                        key={c.id}
+                        onClick={() => setSelectedColor(c.hex)}
+                        className={`w-5 h-5 rounded-full border-2 transition-transform hover:scale-110 ${selectedColor === c.hex ? 'border-white scale-110' : 'border-transparent'}`}
+                        style={{ backgroundColor: c.hex }}
+                     />
+                  ))}
+                  <div className="w-[1px] h-4 bg-white/20 mx-1"></div>
+                  <button 
+                     onClick={() => setLines([])} 
+                     className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-white/10 rounded-md transition-colors"
+                     title="Borrar todo"
+                  >
+                     <Eraser size={16} />
+                  </button>
+               </div>
+             )}
           </div>
 
+          {/* Top Right: Chat Toggle */}
           <button onClick={() => setShowChat(!showChat)} className="pointer-events-auto relative group bg-black/40 rounded-full backdrop-blur-sm md:bg-transparent">
-            {/* Gemini Icon */}
              <div className={`p-2 rounded-full transition-colors ${showChat ? 'bg-blue-500/20 text-blue-400' : 'bg-neutral-800/80 md:bg-neutral-800 text-white hover:bg-neutral-700'}`}>
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-sparkles md:w-6 md:h-6"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L12 3Z"/></svg>
              </div>
-             {!showChat && <span className="hidden md:block absolute top-full right-0 mt-2 px-2 py-1 bg-neutral-800 text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity">Analizar con Gemini</span>}
           </button>
         </div>
 
         {/* Video Area */}
-        <div className="flex-1 flex items-center justify-center bg-neutral-900 overflow-hidden relative group w-full">
-          <video 
-            ref={videoRef}
-            src={video.url}
-            className="max-h-full max-w-full object-contain"
-            playsInline
-            loop={false}
-            onClick={togglePlay}
-          />
-          {/* Keyboard Hint */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/50 px-3 py-1 rounded-full text-white/50 text-xs pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity hidden md:block">
-            Usa las flechas ⬅ ➡ para moverte lentamente
+        <div 
+          ref={containerRef}
+          className={`flex-1 flex items-center justify-center bg-neutral-900 overflow-hidden relative group w-full ${isDrawingMode ? 'cursor-crosshair' : (zoom > 1 ? 'cursor-move' : 'cursor-default')}`}
+          onWheel={handleWheel}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+        >
+          {/* Zoom/Pan Transform Container */}
+          <div 
+            style={{ 
+              transformOrigin: '0 0', // Crucial for correct math mapping
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transition: (isDraggingPan || isDrawingLine) ? 'none' : 'transform 0.1s ease-out'
+            }}
+            className="w-full h-full flex items-center justify-center relative"
+          >
+            <video 
+              ref={videoRef}
+              src={video.url}
+              className="max-h-full max-w-full object-contain pointer-events-none" 
+              playsInline
+              loop={false}
+            />
+            
+            {/* Drawing Layer (SVG) - Sits exactly on top of video inside the transform */}
+            <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
+               {lines.map((line, i) => (
+                  <line 
+                     key={i}
+                     x1={line.start.x} y1={line.start.y}
+                     x2={line.end.x} y2={line.end.y}
+                     stroke={line.color}
+                     strokeWidth={4 / zoom} // Keep line width consistent visually
+                     strokeLinecap="round"
+                  />
+               ))}
+               {currentLine && (
+                  <line 
+                     x1={currentLine.start.x} y1={currentLine.start.y}
+                     x2={currentLine.end.x} y2={currentLine.end.y}
+                     stroke={currentLine.color}
+                     strokeWidth={4 / zoom}
+                     strokeLinecap="round"
+                     opacity={0.8}
+                  />
+               )}
+            </svg>
+          </div>
+
+          {/* Zoom Controls Overlay (Only when NOT drawing) */}
+          {!isDrawingMode && (
+            <div className="absolute top-1/2 right-4 -translate-y-1/2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-auto z-20">
+               <button 
+                  onClick={() => setZoom(z => Math.min(z + 0.5, 8))}
+                  className="p-2 bg-black/50 hover:bg-black/80 rounded-full text-white backdrop-blur-sm transition-colors"
+                  title="Zoom In"
+               >
+                  <ZoomIn size={20} />
+               </button>
+               <button 
+                  onClick={() => { setZoom(1); setPan({x:0, y:0}); }}
+                  className="p-2 bg-black/50 hover:bg-black/80 rounded-full text-white backdrop-blur-sm transition-colors"
+                  title="Reset Zoom"
+               >
+                  <Maximize2 size={20} />
+               </button>
+               <button 
+                  onClick={() => setZoom(z => Math.max(1, z - 0.5))}
+                  className="p-2 bg-black/50 hover:bg-black/80 rounded-full text-white backdrop-blur-sm transition-colors"
+                  title="Zoom Out"
+               >
+                  <ZoomOut size={20} />
+               </button>
+            </div>
+          )}
+
+          {/* Hints */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/50 px-3 py-1 rounded-full text-white/50 text-xs pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex items-center gap-2">
+            {isDrawingMode ? (
+               <span>Clica y arrastra para dibujar líneas</span>
+            ) : zoom > 1 ? (
+              <>
+                <Move size={12} />
+                <span>Arrastra para mover</span>
+              </>
+            ) : (
+              <span>Espacio: Play/Pause · Scroll: Zoom</span>
+            )}
           </div>
         </div>
 
@@ -299,12 +547,12 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="md:w-8 md:h-8"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>
                 </button>
 
-                <button className="text-neutral-400 hover:text-white transition-colors hidden xs:block">
+                <button onClick={() => { setZoom(1); setPan({x:0, y:0}); }} className={`text-neutral-400 hover:text-white transition-colors hidden xs:block ${zoom > 1 ? 'text-orange-500' : ''}`}>
                    <Maximize2 size={20} className="md:w-6 md:h-6" />
                 </button>
              </div>
              
-             <div className="w-10 md:w-16"></div> {/* Spacer */}
+             <div className="w-10 md:w-16"></div> 
           </div>
         </div>
       </div>

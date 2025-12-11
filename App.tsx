@@ -114,6 +114,13 @@ export default function App() {
     StorageService.updateVideos(currentUser.id, updatedVideos);
   };
 
+  const handleDeleteVideo = (id: string) => {
+    if (!currentUser) return;
+    const updatedVideos = videos.filter(v => v.id !== id);
+    setVideos(updatedVideos);
+    StorageService.updateVideos(currentUser.id, updatedVideos);
+  };
+
   // Plan Handlers
   const handleUploadPlan = (file: File) => {
     const newPlan: PlanFile = {
@@ -282,6 +289,7 @@ export default function App() {
             videos={videos} 
             onSelectVideo={handleSelectVideo} 
             onUpload={handleUploadVideo}
+            onDelete={handleDeleteVideo}
           />
         )}
 
