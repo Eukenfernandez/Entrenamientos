@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { User } from '../types';
 import { StorageService } from '../services/storageService';
-import { User as UserIcon, Lock, ArrowRight, Loader2, AlertCircle, CloudOff, Cloud } from 'lucide-react';
+import { User as UserIcon, Lock, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 
 interface LoginProps {
   onLogin: (user: User) => void;
@@ -64,21 +64,6 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
         <rect width="100%" height="100%" fill="url(#grid)" />
       </svg>
       
-      {/* Cloud/Local Indicator */}
-      <div className="absolute top-4 right-4 z-30">
-        {isCloud ? (
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-green-900/40 border border-green-500/30 rounded-full text-green-400 text-xs font-mono">
-            <Cloud size={14} />
-            <span>MODO NUBE ACTIVO</span>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-neutral-800/80 border border-neutral-700 rounded-full text-neutral-400 text-xs font-mono backdrop-blur-md">
-            <CloudOff size={14} />
-            <span>MODO LOCAL (OFFLINE)</span>
-          </div>
-        )}
-      </div>
-
       {/* Auth Card */}
       <div className="relative z-20 w-full max-w-md p-8 m-4 bg-neutral-900/90 backdrop-blur-xl border border-neutral-800 rounded-3xl shadow-2xl animate-in fade-in zoom-in duration-300">
         <div className="flex flex-col items-center text-center mb-8">
@@ -106,7 +91,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
                <div className="relative">
                   <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500" size={18} />
                   <input 
-                    type="text" // 'email' type sometimes triggers validation tooltips that block UI, text is safer for hybrid username/email
+                    type="text" 
                     name="username"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}

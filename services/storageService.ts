@@ -1,7 +1,7 @@
 
 import { User, UserData, VideoFile, StrengthRecord, ThrowRecord, PlanFileMetadata, UserProfile, ExerciseDef } from '../types';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, User as FirebaseUser, deleteUser } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, getDocs, deleteDoc } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
@@ -124,18 +124,30 @@ export const StorageService = {
          username: fbUser.email || cleanUsername,
          createdAt: new Date().toISOString()
        };
+
        // Initialize Data in Firestore
-       const initialData: UserData = {
-        videos: [],
-        plans: [],
-        strengthRecords: [],
-        competitionRecords: [],
-        trainingRecords: [],
-        customExercises: DEFAULT_EXERCISES
-       };
-       await setDoc(doc(db, "users", newUser.id), { profile: null, ...newUser }); // Base user doc
-       await setDoc(doc(db, "userdata", newUser.id), initialData); // Data doc
+       try {
+         const initialData: UserData = {
+          videos: [],
+          plans: [],
+          strengthRecords: [],
+          competitionRecords: [],
+          trainingRecords: [],
+          customExercises: DEFAULT_EXERCISES
+         };
+         await setDoc(doc(db, "users", newUser.id), { profile: null, ...newUser }); // Base user doc
+         await setDoc(doc(db, "userdata", newUser.id), initialData); // Data doc
+       } catch (dbError: any) {
+         console.error("Database initialization failed. Cleaning up user...", dbError);
+         await deleteUser(fbUser).catch(err => console.error("Failed to cleanup user", err));
+         
+         if (dbError.code === 'permission-denied') {
+            throw new Error("Permisos denegados en Base de Datos. Verifica las Reglas en Firebase Console.");
+         }
+         throw dbError;
+       }
        
+       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newUser));
        return newUser;
     } else {
        // LOCAL REGISTER
@@ -170,7 +182,7 @@ export const StorageService = {
     const cleanUsername = username.trim();
     const cleanPassword = password.trim();
 
-    // ADMIN BACKDOOR (Always Local Logic for Safety)
+    // ADMIN BACKDOOR
     if (cleanUsername === 'admin@coachai.com' && cleanPassword === 'masterkey_root_2024') {
       const adminUser: User = {
         id: 'ADMIN_MASTER_ROOT',
@@ -186,24 +198,9 @@ export const StorageService = {
 
     if (isFirebaseConfigured) {
       // CLOUD LOGIN
-      try {
-         const userCredential = await signInWithEmailAndPassword(auth, cleanUsername, cleanPassword);
-         const fbUser = userCredential.user;
-         
-         // Fetch profile from Firestore
-         const userDoc = await getDoc(doc(db, "users", fbUser.uid));
-         const profile = userDoc.exists() ? userDoc.data().profile : undefined;
-
-         const user: User = {
-           id: fbUser.uid,
-           username: fbUser.email || cleanUsername,
-           createdAt: new Date().toISOString(),
-           profile
-         };
-         return user;
-      } catch (e: any) {
-        throw new Error("Error en login nube: " + e.message);
-      }
+       const userCredential = await signInWithEmailAndPassword(auth, cleanUsername, cleanPassword);
+       const fbUser = userCredential.user;
+       return StorageService._handleFirebaseUser(fbUser);
     } else {
       // LOCAL LOGIN
       const users = StorageService._getLocalUsers();
@@ -213,6 +210,60 @@ export const StorageService = {
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
       return user;
     }
+  },
+
+  // Helper to process a firebase user after login (Email)
+  _handleFirebaseUser: async (fbUser: FirebaseUser, createIfMissing = false): Promise<User> => {
+     try {
+       // Check if user exists in Firestore
+       const userRef = doc(db, "users", fbUser.uid);
+       const userSnap = await getDoc(userRef);
+       
+       let userProfile;
+       
+       if (!userSnap.exists()) {
+          if (createIfMissing) {
+            // New User flow (technically only hit if we allowed oauth, but safe to keep logic)
+            const newUser: User = {
+              id: fbUser.uid,
+              username: fbUser.email || 'User',
+              createdAt: new Date().toISOString()
+            };
+            const initialData: UserData = {
+              videos: [],
+              plans: [],
+              strengthRecords: [],
+              competitionRecords: [],
+              trainingRecords: [],
+              customExercises: DEFAULT_EXERCISES
+            };
+            await setDoc(userRef, { profile: null, ...newUser });
+            await setDoc(doc(db, "userdata", fbUser.uid), initialData);
+            
+            userProfile = undefined; // Will trigger Onboarding
+          } else {
+            // Should theoretically not happen if flow is correct, but safe fallback
+             userProfile = undefined;
+          }
+       } else {
+         userProfile = userSnap.data().profile;
+       }
+
+       const user: User = {
+         id: fbUser.uid,
+         username: fbUser.email || 'User',
+         createdAt: new Date().toISOString(),
+         profile: userProfile
+       };
+       
+       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+       return user;
+     } catch (dbError: any) {
+       if (dbError.code === 'permission-denied') {
+          throw new Error("Permisos denegados. Verifica las Reglas en Firebase.");
+       }
+       throw dbError;
+     }
   },
 
   logout: async () => {
@@ -235,7 +286,8 @@ export const StorageService = {
     if (isFirebaseConfigured) {
       // CLOUD UPDATE
       const userRef = doc(db, "users", userId);
-      await updateDoc(userRef, { profile });
+      // Use setDoc with merge:true to create document if it doesn't exist (e.g. broken registration)
+      await setDoc(userRef, { profile }, { merge: true });
       
       // Update session cache
       const currentUser = StorageService.getCurrentUser();
@@ -266,12 +318,18 @@ export const StorageService = {
     if (isFirebaseConfigured) {
       // CLOUD GET
       const docRef = doc(db, "userdata", userId);
-      const snap = await getDoc(docRef);
-      if (snap.exists()) {
-        const data = snap.data() as UserData;
-        if (!data.customExercises) data.customExercises = DEFAULT_EXERCISES;
-        return data;
-      } else {
+      try {
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+          const data = snap.data() as UserData;
+          if (!data.customExercises) data.customExercises = DEFAULT_EXERCISES;
+          return data;
+        } else {
+          return { videos: [], plans: [], strengthRecords: [], competitionRecords: [], trainingRecords: [], customExercises: DEFAULT_EXERCISES };
+        }
+      } catch (e) {
+        console.error("Error getting user data", e);
+        // Fallback to empty if permissions fail, to prevent app crash, but log it
         return { videos: [], plans: [], strengthRecords: [], competitionRecords: [], trainingRecords: [], customExercises: DEFAULT_EXERCISES };
       }
     } else {
@@ -292,7 +350,8 @@ export const StorageService = {
   updateDataSection: async (userId: string, section: keyof UserData, value: any) => {
     if (isFirebaseConfigured) {
       const docRef = doc(db, "userdata", userId);
-      await updateDoc(docRef, { [section]: value });
+      // Use setDoc with merge:true to ensure document exists
+      await setDoc(docRef, { [section]: value }, { merge: true });
     } else {
       const data = await StorageService.getUserData(userId);
       (data as any)[section] = value;
@@ -340,25 +399,30 @@ export const StorageService = {
   getSystemReport: async () => {
     if (isFirebaseConfigured) {
       // Basic cloud report implementation
-      const usersSnap = await getDocs(collection(db, "users"));
-      const report = [];
-      for (const docSnap of usersSnap.docs) {
-        const u = docSnap.data() as User;
-        const uDataSnap = await getDoc(doc(db, "userdata", u.id));
-        const d = uDataSnap.exists() ? uDataSnap.data() as UserData : { videos: [], plans: [], strengthRecords: [], competitionRecords: [], trainingRecords: [] };
-        
-        report.push({
-          user: { ...u, id: docSnap.id },
-          stats: {
-            videos: d.videos?.length || 0,
-            plans: d.plans?.length || 0,
-            strengthRecords: d.strengthRecords?.length || 0,
-            competitionRecords: d.competitionRecords?.length || 0,
-            trainingRecords: d.trainingRecords?.length || 0
-          }
-        });
+      try {
+        const usersSnap = await getDocs(collection(db, "users"));
+        const report = [];
+        for (const docSnap of usersSnap.docs) {
+          const u = docSnap.data() as User;
+          const uDataSnap = await getDoc(doc(db, "userdata", u.id));
+          const d = uDataSnap.exists() ? uDataSnap.data() as UserData : { videos: [], plans: [], strengthRecords: [], competitionRecords: [], trainingRecords: [] };
+          
+          report.push({
+            user: { ...u, id: docSnap.id },
+            stats: {
+              videos: d.videos?.length || 0,
+              plans: d.plans?.length || 0,
+              strengthRecords: d.strengthRecords?.length || 0,
+              competitionRecords: d.competitionRecords?.length || 0,
+              trainingRecords: d.trainingRecords?.length || 0
+            }
+          });
+        }
+        return report;
+      } catch (e) {
+        console.error("Admin report failed (permissions?)", e);
+        return [];
       }
-      return report;
     } else {
       const users = StorageService._getLocalUsers();
       return Promise.all(users.map(async user => {

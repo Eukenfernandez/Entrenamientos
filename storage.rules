@@ -1,0 +1,10 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Permite acceso a todos los archivos. 
+    // Ideal para evitar errores de permisos al subir vídeos.
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}
