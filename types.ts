@@ -41,14 +41,26 @@ export interface ThrowRecord {
   id: string;
   date: string;
   location: string;
-  distance: number;
+  distance: number; // This acts as the generic "Result" value (Meters or Seconds)
+}
+
+export type SportType = 'sprint' | 'middle_distance' | 'jumps' | 'throws' | 'weightlifting' | 'other';
+
+export interface UserProfile {
+  firstName: string;
+  lastName: string;
+  age: number;
+  role: 'athlete' | 'coach';
+  sport: SportType;
+  discipline: string; // Specific name e.g., "60m", "Javelin", "Long Jump"
 }
 
 export interface User {
   id: string;
   username: string;
-  password?: string; // In a real app, never store raw passwords. This is for local demo only.
+  password?: string; 
   createdAt: string;
+  profile?: UserProfile;
 }
 
 export interface UserData {
@@ -59,4 +71,4 @@ export interface UserData {
   trainingRecords: ThrowRecord[];
 }
 
-export type Screen = 'login' | 'dashboard' | 'gallery' | 'analyzer' | 'strength' | 'competition' | 'training' | 'planning' | 'planViewer' | 'coach' | 'calculator';
+export type Screen = 'login' | 'onboarding' | 'dashboard' | 'gallery' | 'analyzer' | 'strength' | 'competition' | 'training' | 'planning' | 'planViewer' | 'coach' | 'calculator';

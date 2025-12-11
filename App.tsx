@@ -1,6 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Login } from './components/Login';
+import { Onboarding } from './components/Onboarding';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { Gallery } from './components/Gallery';
@@ -46,16 +47,25 @@ export default function App() {
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
+    
+    // Check if profile exists, if not, go to onboarding
+    if (!user.profile) {
+      setCurrentScreen('onboarding');
+      return; 
+    }
+
     // Load User Data from "Database"
     const data = StorageService.getUserData(user.id);
     setStrengthRecords(data.strengthRecords || []);
     setCompetitionRecords(data.competitionRecords || []);
     setTrainingRecords(data.trainingRecords || []);
-    // Note: In this demo, videos/plans blob URLs might be expired if page refreshed, 
-    // but metadata is loaded.
     setVideos(data.videos || []);
-    // Plans logic omitted for briefness as file objects don't persist well in local storage text
     
+    setCurrentScreen('dashboard');
+  };
+
+  const handleOnboardingComplete = (updatedUser: User) => {
+    setCurrentUser(updatedUser);
     setCurrentScreen('dashboard');
   };
 
@@ -113,7 +123,6 @@ export default function App() {
       date: new Date().toLocaleDateString()
     };
     setPlans(prev => [newPlan, ...prev]);
-    // Note: Not persisting PDF binaries to localStorage in this demo due to size limits.
   };
 
   const handleSelectPlan = (plan: PlanFile) => {
@@ -204,6 +213,10 @@ export default function App() {
     return <Login onLogin={handleLogin} />;
   }
 
+  if (currentScreen === 'onboarding') {
+    return <Onboarding user={currentUser} onComplete={handleOnboardingComplete} />;
+  }
+
   return (
     <div 
       className="flex h-[100dvh] w-full bg-neutral-950 text-white overflow-hidden font-sans relative"
@@ -255,7 +268,7 @@ export default function App() {
       <main className="flex-1 h-full overflow-hidden relative bg-neutral-950">
         {currentScreen === 'dashboard' && (
           <Dashboard 
-             userName={currentUser.username}
+             userProfile={currentUser.profile}
              videos={videos} 
              strengthRecords={strengthRecords} 
              throwRecords={competitionRecords} 
@@ -302,16 +315,18 @@ export default function App() {
           />
         )}
 
-        {currentScreen === 'competition' && (
+        {currentScreen === 'competition' && currentUser.profile && (
           <JavelinTracker 
+            profile={currentUser.profile}
             records={competitionRecords}
             onAddRecord={handleAddCompetition}
             onDeleteRecord={handleDeleteCompetition}
           />
         )}
 
-        {currentScreen === 'training' && (
+        {currentScreen === 'training' && currentUser.profile && (
           <TrainingTracker 
+            profile={currentUser.profile}
             records={trainingRecords}
             onAddRecord={handleAddTraining}
             onDeleteRecord={handleDeleteTraining}

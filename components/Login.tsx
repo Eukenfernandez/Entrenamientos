@@ -21,19 +21,22 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
     setError(null);
     setIsLoading(true);
 
+    const cleanUser = username.trim();
+    const cleanPass = password.trim();
+
     // Simulate network delay for better UX
     await new Promise(r => setTimeout(r, 800));
 
     try {
-      if (!username || !password) {
+      if (!cleanUser || !cleanPass) {
         throw new Error('Por favor completa todos los campos.');
       }
 
       let user: User;
       if (isRegistering) {
-        user = StorageService.register(username, password);
+        user = StorageService.register(cleanUser, cleanPass);
       } else {
-        user = StorageService.login(username, password);
+        user = StorageService.login(cleanUser, cleanPass);
       }
       onLogin(user);
     } catch (err: any) {
@@ -98,7 +101,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
           {/* Manual Login Form (First) */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1">
-               <label className="text-xs text-neutral-400 ml-1">Usuario</label>
+               <label className="text-xs text-neutral-400 ml-1">Correo o Usuario</label>
                <div className="relative">
                   <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500" size={18} />
                   <input 
@@ -106,7 +109,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="w-full bg-black/50 border border-neutral-700 rounded-xl py-3 pl-11 pr-4 text-white placeholder-neutral-600 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all"
-                    placeholder="Tu nombre de usuario"
+                    placeholder="Correo"
                   />
                </div>
             </div>
@@ -126,9 +129,9 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
             </div>
 
             {error && (
-              <div className="flex items-center gap-2 text-red-400 bg-red-900/20 p-3 rounded-lg text-sm border border-red-900/50 animate-in slide-in-from-top-2">
-                <AlertCircle size={16} />
-                {error}
+              <div className="flex items-start gap-2 text-red-400 bg-red-900/20 p-3 rounded-lg text-sm border border-red-900/50 animate-in slide-in-from-top-2">
+                <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+                <span>{error}</span>
               </div>
             )}
 
@@ -182,6 +185,8 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
               onClick={() => {
                 setIsRegistering(!isRegistering);
                 setError(null);
+                setUsername('');
+                setPassword('');
               }}
               className="text-sm text-neutral-400 hover:text-white transition-colors underline decoration-neutral-700 underline-offset-4"
             >

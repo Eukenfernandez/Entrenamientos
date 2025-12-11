@@ -1,5 +1,5 @@
 
-import { User, UserData, VideoFile, StrengthRecord, ThrowRecord, PlanFileMetadata } from '../types';
+import { User, UserData, VideoFile, StrengthRecord, ThrowRecord, PlanFileMetadata, UserProfile } from '../types';
 
 const USERS_KEY = 'velocityview_users';
 const CURRENT_USER_KEY = 'velocityview_current_user';
@@ -9,21 +9,37 @@ export const StorageService = {
   // --- AUTHENTICATION ---
 
   getUsers: (): User[] => {
-    const usersJson = localStorage.getItem(USERS_KEY);
-    return usersJson ? JSON.parse(usersJson) : [];
+    try {
+      const usersJson = localStorage.getItem(USERS_KEY);
+      const parsed = usersJson ? JSON.parse(usersJson) : [];
+      if (!Array.isArray(parsed)) return [];
+      return parsed;
+    } catch (e) {
+      console.error("Error parsing users from storage", e);
+      return [];
+    }
   },
 
   register: (username: string, password: string): User => {
+    // Sanitize inputs: remove leading/trailing whitespace
+    const cleanUsername = username.trim();
+    const cleanPassword = password.trim();
+
+    if (!cleanUsername || !cleanPassword) {
+      throw new Error('Usuario y contraseña son obligatorios.');
+    }
+
     const users = StorageService.getUsers();
     
-    if (users.find(u => u.username.toLowerCase() === username.toLowerCase())) {
-      throw new Error('El nombre de usuario ya existe.');
+    // Check for existing user (case insensitive)
+    if (users.find(u => u.username && u.username.toLowerCase() === cleanUsername.toLowerCase())) {
+      throw new Error('Este correo o usuario ya está registrado.');
     }
 
     const newUser: User = {
       id: Date.now().toString(),
-      username,
-      password, // Note: In production, hash this!
+      username: cleanUsername,
+      password: cleanPassword, 
       createdAt: new Date().toISOString()
     };
 
@@ -40,15 +56,35 @@ export const StorageService = {
     };
     StorageService.saveUserData(newUser.id, initialData);
 
+    // Auto-login after register
+    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newUser));
+
     return newUser;
   },
 
   login: (username: string, password: string): User => {
+    const cleanUsername = username.trim();
+    const cleanPassword = password.trim();
+
+    if (!cleanUsername || !cleanPassword) {
+      throw new Error('Por favor ingresa usuario y contraseña.');
+    }
+
     const users = StorageService.getUsers();
-    const user = users.find(u => u.username.toLowerCase() === username.toLowerCase() && u.password === password);
+    
+    // 1. Find user by username first
+    const user = users.find(u => 
+      u.username && 
+      u.username.toLowerCase() === cleanUsername.toLowerCase()
+    );
     
     if (!user) {
-      throw new Error('Credenciales inválidas.');
+      throw new Error('Usuario no encontrado. ¿Te has registrado?');
+    }
+
+    // 2. Check password
+    if (user.password !== cleanPassword) {
+      throw new Error('Contraseña incorrecta.');
     }
     
     localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
@@ -58,14 +94,16 @@ export const StorageService = {
   loginWithGoogle: (): User => {
     // Simulating Google Auth Provider flow
     const users = StorageService.getUsers();
+    const googleUsername = "Usuario Google"; // Consistent ID for the simulated Google User
+
     // Check if we already have a google user registered
-    let googleUser = users.find(u => u.username === "Usuario Google");
+    let googleUser = users.find(u => u.username === googleUsername);
 
     if (!googleUser) {
       // Register new Google User automatically
       googleUser = {
-        id: 'google_' + Date.now().toString(),
-        username: "Usuario Google",
+        id: 'google_user_main', // Fixed ID so data persists for this "Google User" always
+        username: googleUsername,
         createdAt: new Date().toISOString()
         // No password for OAuth users
       };
@@ -91,40 +129,72 @@ export const StorageService = {
   },
 
   getCurrentUser: (): User | null => {
-    const userJson = localStorage.getItem(CURRENT_USER_KEY);
-    return userJson ? JSON.parse(userJson) : null;
+    try {
+      const userJson = localStorage.getItem(CURRENT_USER_KEY);
+      return userJson ? JSON.parse(userJson) : null;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  updateUserProfile: (userId: string, profile: UserProfile): User => {
+    const users = StorageService.getUsers();
+    const userIndex = users.findIndex(u => u.id === userId);
+    
+    if (userIndex === -1) throw new Error("User not found");
+
+    // Update user in main list
+    users[userIndex].profile = profile;
+    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+
+    // Update current session user
+    const updatedUser = users[userIndex];
+    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updatedUser));
+    
+    return updatedUser;
   },
 
   // --- DATA PERSISTENCE ---
 
   getUserData: (userId: string): UserData => {
-    const dataJson = localStorage.getItem(`${DATA_PREFIX}${userId}`);
-    if (!dataJson) {
-       return {
-         videos: [],
-         plans: [],
-         strengthRecords: [],
-         competitionRecords: [],
-         trainingRecords: []
-       };
+    try {
+      const dataJson = localStorage.getItem(`${DATA_PREFIX}${userId}`);
+      if (!dataJson) {
+         return {
+           videos: [],
+           plans: [],
+           strengthRecords: [],
+           competitionRecords: [],
+           trainingRecords: []
+         };
+      }
+      return JSON.parse(dataJson);
+    } catch (e) {
+      console.error("Error parsing user data", e);
+      return {
+        videos: [],
+        plans: [],
+        strengthRecords: [],
+        competitionRecords: [],
+        trainingRecords: []
+      };
     }
-    return JSON.parse(dataJson);
   },
 
   saveUserData: (userId: string, data: UserData) => {
-    // Note: We filter out blob URLs for videos/plans in a real app, 
-    // but for this demo, we will store metadata.
-    // Large base64 strings might hit localStorage limits (5MB).
-    // We try to save as much as possible.
     try {
       localStorage.setItem(`${DATA_PREFIX}${userId}`, JSON.stringify(data));
     } catch (e) {
-      console.error("Storage Quota Exceeded", e);
-      alert("⚠️ Límite de almacenamiento local lleno. Algunos vídeos grandes podrían no guardarse.");
+      console.error("Storage Quota Exceeded or Error", e);
+      try {
+        const minimalData = { ...data, videos: [] }; 
+        localStorage.setItem(`${DATA_PREFIX}${userId}`, JSON.stringify(minimalData));
+      } catch (e2) {
+        // Critical failure
+      }
     }
   },
 
-  // Helper to update specific slice of data
   updateStrengthRecords: (userId: string, records: StrengthRecord[]) => {
     const data = StorageService.getUserData(userId);
     data.strengthRecords = records;
@@ -145,9 +215,6 @@ export const StorageService = {
   
   updateVideos: (userId: string, videos: VideoFile[]) => {
     const data = StorageService.getUserData(userId);
-    // Warning: Persisting Blob URLs isn't possible across sessions. 
-    // In a real app, we'd upload to cloud. 
-    // Here we save metadata. The user might need to re-upload actual files in this static demo if page refreshes.
     data.videos = videos; 
     StorageService.saveUserData(userId, data);
   }

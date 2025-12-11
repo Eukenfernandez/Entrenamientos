@@ -1,10 +1,10 @@
 
 import React from 'react';
-import { VideoFile, StrengthRecord, ThrowRecord, Screen } from '../types';
-import { Activity, TrendingUp, Video, Trophy, Target, CalendarRange } from 'lucide-react';
+import { VideoFile, StrengthRecord, ThrowRecord, Screen, UserProfile } from '../types';
+import { Activity, TrendingUp, Video, Trophy, Target, CalendarRange, Timer } from 'lucide-react';
 
 interface DashboardProps {
-  userName?: string;
+  userProfile?: UserProfile;
   videos: VideoFile[];
   strengthRecords: StrengthRecord[];
   throwRecords: ThrowRecord[]; // Competition
@@ -13,14 +13,27 @@ interface DashboardProps {
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ 
-  userName = "Atleta", 
+  userProfile, 
   videos, 
   strengthRecords, 
   throwRecords, 
   trainingRecords,
   onNavigate 
 }) => {
-  const bestThrow = throwRecords.length > 0 ? Math.max(...throwRecords.map(r => r.distance)) : 0;
+  
+  // Determine metrics based on sport
+  const isTimeBased = userProfile?.sport === 'sprint' || userProfile?.sport === 'middle_distance';
+  const unit = isTimeBased ? 's' : 'm';
+  const metricLabel = isTimeBased ? 'Tiempo' : 'Marca';
+  
+  // Best Record Logic (Min for time, Max for distance)
+  const getBest = (records: ThrowRecord[]) => {
+    if (records.length === 0) return 0;
+    const values = records.map(r => r.distance);
+    return isTimeBased ? Math.min(...values) : Math.max(...values);
+  };
+
+  const bestCompetition = getBest(throwRecords);
   const totalLifts = strengthRecords.length;
 
   // --- Graph Data Logic ---
@@ -47,31 +60,30 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const minDateObj = new Date(uniqueDates[0]).getTime();
     const maxDateObj = new Date(uniqueDates[uniqueDates.length - 1]).getTime();
     
-    // If all dates are the same (or only 1 date), create a fake range of 1 day to allow centering
     let timeRange = maxDateObj - minDateObj;
-    if (timeRange === 0) timeRange = 24 * 60 * 60 * 1000; // 1 day in ms
+    if (timeRange === 0) timeRange = 24 * 60 * 60 * 1000; 
 
     // 3. Find Max Values for Normalization (0-100% scale)
     const maxComp = Math.max(...throwRecords.map(r => r.distance), 1);
     const maxTrain = Math.max(...trainingRecords.map(r => r.distance), 1);
-    // Strength: average weight of the day relative to max weight
     const maxStrength = Math.max(...strengthRecords.map(r => r.weight), 1);
 
-    // 4. Helper to map date to X and value to Y
     const width = 1000;
     const height = 300;
-    const padding = 30; // Increased padding
+    const padding = 30; 
     const graphW = width - padding * 2;
     const graphH = height - padding * 2;
 
     const getX = (dateStr: string) => {
       const t = new Date(dateStr).getTime();
-      // If only 1 date, center it. Else spread.
       const percent = (t - minDateObj) / timeRange;
       return padding + percent * graphW;
     };
 
     const getY = (val: number, maxVal: number) => {
+      // For time based sports, we might want to invert graph so lower is "higher" visually?
+      // For simplicity, we keep standard Y axis: High value = High on graph.
+      // If it's time, a downward trend line is "good".
       const normalized = val / maxVal; 
       return height - padding - (normalized * graphH);
     };
@@ -101,7 +113,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     // Helper to make path string
     const makePath = (points: {x:number, y:number}[]) => {
        if (points.length === 0) return "";
-       if (points.length === 1) return ""; // Cannot draw line with 1 point
+       if (points.length === 1) return ""; 
        return points.map((p, i) => `${i===0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
     };
 
@@ -116,15 +128,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div className="absolute top-4 right-4 flex flex-col gap-2 bg-neutral-950/80 p-3 rounded-xl border border-neutral-800 backdrop-blur-sm z-10 text-xs">
                <div className="flex items-center gap-2">
                   <div className="w-3 h-3 bg-orange-500 rounded-full border border-black shadow-[0_0_8px_rgba(249,115,22,0.8)]"></div>
-                  <span className="text-orange-200">Competición</span>
+                  <span className="text-orange-200">Competición ({unit})</span>
                </div>
                <div className="flex items-center gap-2">
                   <div className="w-3 h-3 bg-emerald-500 rounded-full border border-black shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
-                  <span className="text-emerald-200">Entrenamiento</span>
+                  <span className="text-emerald-200">Entreno ({unit})</span>
                </div>
                <div className="flex items-center gap-2">
                   <div className="w-3 h-3 bg-purple-500 rounded-full border border-black shadow-[0_0_8px_rgba(168,85,247,0.8)]"></div>
-                  <span className="text-purple-200">Fuerza</span>
+                  <span className="text-purple-200">Fuerza (kg)</span>
                </div>
             </div>
 
@@ -168,19 +180,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
   
   return (
     <div className="p-6 md:p-10 bg-neutral-950 h-full overflow-y-auto">
-      <h1 className="text-3xl font-bold text-white mb-1">Hola, {userName} 👋</h1>
-      <p className="text-neutral-400 mb-8">Aquí tienes el resumen de tu rendimiento hoy.</p>
+      <h1 className="text-3xl font-bold text-white mb-1">Hola, {userProfile?.firstName || 'Atleta'} 👋</h1>
+      <p className="text-neutral-400 mb-8">Aquí tienes el resumen de tu rendimiento en {userProfile?.discipline || 'tu deporte'}.</p>
 
       {/* Key Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
         <div onClick={() => onNavigate('competition')} className="bg-gradient-to-br from-neutral-900 to-neutral-900 border border-neutral-800 p-6 rounded-2xl hover:border-orange-500/50 transition-colors cursor-pointer group">
           <div className="flex justify-between items-start mb-4">
             <div className="p-3 bg-orange-500/10 rounded-lg text-orange-500 group-hover:bg-orange-500 group-hover:text-white transition-colors">
-              <Trophy size={24} />
+              {isTimeBased ? <Timer size={24} /> : <Trophy size={24} />}
             </div>
-            <span className="text-xs font-mono text-neutral-500">PB COMPETICIÓN</span>
+            <span className="text-xs font-mono text-neutral-500 uppercase">MEJOR {metricLabel}</span>
           </div>
-          <p className="text-4xl font-bold text-white">{bestThrow} <span className="text-lg text-neutral-500 font-normal">m</span></p>
+          <p className="text-4xl font-bold text-white">{bestCompetition} <span className="text-lg text-neutral-500 font-normal">{unit}</span></p>
         </div>
 
         <div onClick={() => onNavigate('gallery')} className="bg-neutral-900 border border-neutral-800 p-6 rounded-2xl hover:border-blue-500/50 transition-colors cursor-pointer group">

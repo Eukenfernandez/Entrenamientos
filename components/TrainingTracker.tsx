@@ -1,49 +1,65 @@
 
 import React, { useState } from 'react';
-import { ThrowRecord } from '../types';
-import { MapPin, Trash2, Target } from 'lucide-react';
+import { ThrowRecord, UserProfile } from '../types';
+import { MapPin, Trash2, Target, StopCircle } from 'lucide-react';
 
 interface TrainingTrackerProps {
+  profile: UserProfile;
   records: ThrowRecord[];
   onAddRecord: (record: Omit<ThrowRecord, 'id'>) => void;
   onDeleteRecord: (id: string) => void;
 }
 
-export const TrainingTracker: React.FC<TrainingTrackerProps> = ({ records, onAddRecord, onDeleteRecord }) => {
-  const [distance, setDistance] = useState('');
+export const TrainingTracker: React.FC<TrainingTrackerProps> = ({ profile, records, onAddRecord, onDeleteRecord }) => {
+  const [value, setValue] = useState('');
   const [location, setLocation] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
 
+  const isTimeBased = profile.sport === 'sprint' || profile.sport === 'middle_distance';
+  const unit = isTimeBased ? 's' : 'm';
+  const label = isTimeBased ? 'Tiempo' : 'Marca';
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!distance || !date) return;
+    if (!value || !date) return;
     onAddRecord({
-      distance: parseFloat(distance),
+      distance: parseFloat(value),
       location: location || 'Entrenamiento',
       date
     });
-    setDistance('');
+    setValue('');
     setLocation('');
   };
 
   const sortedRecords = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  const bestThrow = records.length > 0 ? Math.max(...records.map(r => r.distance)) : 0;
+  
+  const bestRecord = records.length > 0 
+    ? (isTimeBased 
+        ? Math.min(...records.map(r => r.distance)) 
+        : Math.max(...records.map(r => r.distance)))
+    : 0;
 
   // Simple Graph Calculation
   const renderGraph = () => {
-    if (sortedRecords.length < 2) return <div className="h-64 flex items-center justify-center text-neutral-500">Añade al menos 2 registros para ver la gráfica de entrenamientos.</div>;
+    if (sortedRecords.length < 2) return <div className="h-64 flex items-center justify-center text-neutral-500">Añade al menos 2 registros para ver la gráfica.</div>;
 
     const height = 300;
     const width = 800;
     const padding = 40;
     
-    const minDis = Math.min(...sortedRecords.map(r => r.distance)) * 0.9;
-    const maxDis = Math.max(...sortedRecords.map(r => r.distance)) * 1.1;
-    const rangeY = maxDis - minDis;
+    const minVal = Math.min(...sortedRecords.map(r => r.distance));
+    const maxVal = Math.max(...sortedRecords.map(r => r.distance));
+    
+    let rangeY = maxVal - minVal;
+    if (rangeY === 0) rangeY = 1;
+
+    const viewMin = minVal - (rangeY * 0.1);
+    const viewMax = maxVal + (rangeY * 0.1);
+    const viewRange = viewMax - viewMin;
 
     const points = sortedRecords.map((rec, i) => {
       const x = padding + (i / (sortedRecords.length - 1)) * (width - padding * 2);
-      const y = height - padding - ((rec.distance - minDis) / rangeY) * (height - padding * 2);
+      const y = height - padding - ((rec.distance - viewMin) / viewRange) * (height - padding * 2);
       return `${x},${y}`;
     }).join(' ');
 
@@ -61,13 +77,13 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({ records, onAdd
              {/* Dots */}
              {sortedRecords.map((rec, i) => {
                const x = padding + (i / (sortedRecords.length - 1)) * (width - padding * 2);
-               const y = height - padding - ((rec.distance - minDis) / rangeY) * (height - padding * 2);
+               const y = height - padding - ((rec.distance - viewMin) / viewRange) * (height - padding * 2);
                return (
                  <g key={rec.id} className="group">
                     <circle cx={x} cy={y} r="5" className="fill-neutral-900 stroke-emerald-500 stroke-2 group-hover:r-7 transition-all cursor-pointer" />
                     <rect x={x - 30} y={y - 40} width="60" height="25" rx="4" fill="#333" className="opacity-0 group-hover:opacity-100 transition-opacity" />
                     <text x={x} y={y - 23} textAnchor="middle" fill="white" fontSize="10" className="opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity">
-                       {rec.distance}m
+                       {rec.distance}{unit}
                     </text>
                  </g>
                );
@@ -83,12 +99,12 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({ records, onAdd
       <div className="max-w-5xl mx-auto">
         <div className="flex justify-between items-end mb-6">
           <div>
-            <h1 className="text-3xl font-bold text-white mb-2">Práctica Técnica</h1>
-            <p className="text-neutral-400">Diario de lanzamientos y marcas de práctica.</p>
+            <h1 className="text-3xl font-bold text-white mb-2">Práctica: {profile.discipline}</h1>
+            <p className="text-neutral-400">Diario de entrenamientos.</p>
           </div>
           <div className="bg-neutral-900 px-6 py-3 rounded-xl border border-emerald-500/20">
             <span className="block text-xs text-neutral-400 uppercase tracking-wider">Mejor Entrenamiento</span>
-            <span className="text-3xl font-bold text-emerald-500">{bestThrow} m</span>
+            <span className="text-3xl font-bold text-emerald-500">{bestRecord} {unit}</span>
           </div>
         </div>
 
@@ -96,7 +112,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({ records, onAdd
         <div className="mb-10">
            <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
              <Target size={18} className="text-emerald-500" />
-             Consistencia en Entreno
+             Consistencia
            </h3>
            {renderGraph()}
         </div>
@@ -104,15 +120,15 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({ records, onAdd
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Add Form */}
           <div className="bg-neutral-900 p-6 rounded-2xl border border-neutral-800 h-fit">
-            <h3 className="text-white font-semibold mb-4">Añadir Marca de Entreno</h3>
+            <h3 className="text-white font-semibold mb-4">Añadir {label}</h3>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs text-neutral-400 mb-1">Distancia (metros)</label>
+                <label className="block text-xs text-neutral-400 mb-1">{label} ({unit})</label>
                 <input 
                   type="number" 
                   step="0.01"
-                  value={distance}
-                  onChange={(e) => setDistance(e.target.value)}
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
                   className="w-full bg-neutral-800 text-white p-3 rounded-lg border border-neutral-700 focus:border-emerald-500 focus:outline-none"
                   placeholder="00.00"
                   required
@@ -125,7 +141,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({ records, onAdd
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                   className="w-full bg-neutral-800 text-white p-3 rounded-lg border border-neutral-700 focus:border-emerald-500 focus:outline-none"
-                  placeholder="Ej. Sesión Técnica"
+                  placeholder="Ej. Series cortas"
                  />
               </div>
               <div>
@@ -155,10 +171,10 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({ records, onAdd
                <div key={record.id} className="flex items-center justify-between bg-neutral-900 p-4 rounded-xl border border-neutral-800 hover:border-emerald-500/30 transition-colors">
                   <div className="flex items-center gap-4">
                      <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500 font-bold">
-                        E
+                        {isTimeBased ? <StopCircle size={18} /> : 'E'}
                      </div>
                      <div>
-                        <p className="text-white font-bold text-lg">{record.distance}m</p>
+                        <p className="text-white font-bold text-lg">{record.distance}{unit}</p>
                         <div className="flex items-center gap-3 text-xs text-neutral-500">
                            <span>{record.date}</span>
                            <span className="flex items-center gap-1">

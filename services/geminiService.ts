@@ -1,10 +1,16 @@
 
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 
-// Initialize the client with the API key from the environment
-const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY});
-
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Helper to get the AI instance safely.
+ * Initializing inside functions prevents app-crash on load if process.env is undefined in some environments.
+ */
+const getAIClient = () => {
+  // Uses process.env.API_KEY as strictly required.
+  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+};
 
 /**
  * Helper to retry calls with exponential backoff
@@ -15,6 +21,7 @@ async function generateWithRetry(
   retries = 3,
   systemInstruction?: string
 ): Promise<GenerateContentResponse> {
+  const ai = getAIClient();
   let lastError;
   
   for (let i = 0; i < retries; i++) {
