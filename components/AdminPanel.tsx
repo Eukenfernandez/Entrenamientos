@@ -34,21 +34,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
     loadData();
   }, []);
 
-  const loadData = () => {
-    const report = StorageService.getSystemReport();
+  const loadData = async () => {
+    const report = await StorageService.getSystemReport();
     setUsers(report);
   };
 
   const handleUserClick = async (user: User) => {
-    const data = StorageService.getUserData(user.id);
+    const data = await StorageService.getUserData(user.id);
 
     // Hydrate Videos from IndexedDB so they can be played
+    // Admin hydration logic assumes local access unless cloud is active, but admin usually runs in a special context.
+    // For now we try to hydrate from local VideoStorage just in case admin is on the same device.
     if (data.videos && data.videos.length > 0) {
         const hydratedVideos = await Promise.all(data.videos.map(async (v) => {
             try {
                 const blob = await VideoStorage.getVideo(v.id);
                 if (blob) {
-                    return { ...v, url: URL.createObjectURL(blob) };
+                    return { ...v, url: URL.createObjectURL(blob), isLocal: true };
                 }
             } catch (e) {
                 console.error("Could not hydrate video for admin", v.id, e);
@@ -67,10 +69,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
     setSelectedUserData(null);
   };
 
-  const handleDeleteUser = (e: React.MouseEvent, id: string, username: string) => {
+  const handleDeleteUser = async (e: React.MouseEvent, id: string, username: string) => {
     e.stopPropagation();
     if (confirm(`¿Estás SEGURO de que quieres eliminar al usuario "${username}" y TODOS sus datos? Esta acción es irreversible.`)) {
-      StorageService.deleteUser(id);
+      await StorageService.deleteUser(id);
       if (selectedUser?.id === id) {
         handleBackToList();
       }

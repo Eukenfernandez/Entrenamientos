@@ -1,11 +1,49 @@
 
 import { User, UserData, VideoFile, StrengthRecord, ThrowRecord, PlanFileMetadata, UserProfile, ExerciseDef } from '../types';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, getDocs, deleteDoc } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
+// --- CONFIGURACIÓN DE FIREBASE ---
+// PARA ACTIVAR EL MODO NUBE (Sincronización entre dispositivos):
+// 1. Crea un proyecto en https://console.firebase.google.com/
+// 2. Copia la configuración de tu web app.
+// 3. Pégala aquí abajo.
+const firebaseConfig = {
+  apiKey: "", // Ej: "AIzaSy..."
+  authDomain: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: ""
+};
+
+// Detect if Firebase is configured
+const isFirebaseConfigured = !!firebaseConfig.apiKey;
+
+let auth: any;
+let db: any;
+let storage: any;
+
+if (isFirebaseConfigured) {
+  try {
+    const app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+    storage = getStorage(app);
+    console.log("Firebase initialized successfully");
+  } catch (e) {
+    console.error("Firebase initialization failed:", e);
+  }
+}
+
+// --- CONSTANTS FOR LOCAL MODE ---
 const USERS_KEY = 'coachai_users';
 const CURRENT_USER_KEY = 'coachai_current_user';
 const DATA_PREFIX = 'coachai_data_';
 
-// Default exercises with units
+// Default exercises
 const DEFAULT_EXERCISES: ExerciseDef[] = [
   { name: 'Press Banca', unit: 'kg' },
   { name: 'Sentadilla', unit: 'kg' },
@@ -16,7 +54,7 @@ const DEFAULT_EXERCISES: ExerciseDef[] = [
   { name: 'Salto Vertical', unit: 'cm' }
 ];
 
-// --- INDEXED DB FOR VIDEO FILES ---
+// --- INDEXED DB FOR LOCAL VIDEO FILES ---
 const DB_NAME = 'CoachAI_VideoDB';
 const STORE_NAME = 'videos';
 
@@ -53,7 +91,7 @@ export const VideoStorage = {
       const store = tx.objectStore(STORE_NAME);
       const request = store.get(id);
       request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => resolve(null); // Return null gracefully on error
+      request.onerror = () => resolve(null);
     });
   },
 
@@ -69,152 +107,129 @@ export const VideoStorage = {
   }
 };
 
+// --- STORAGE SERVICE INTERFACE ---
+
 export const StorageService = {
-  // --- AUTHENTICATION ---
+  
+  isCloudMode: (): boolean => isFirebaseConfigured,
 
-  getUsers: (): User[] => {
-    try {
-      const usersJson = localStorage.getItem(USERS_KEY);
-      const parsed = usersJson ? JSON.parse(usersJson) : [];
-      if (!Array.isArray(parsed)) return [];
-      return parsed;
-    } catch (e) {
-      console.error("Error parsing users from storage", e);
-      return [];
-    }
-  },
+  // --- AUTH ---
 
-  register: (username: string, password: string): User => {
-    // Sanitize inputs: remove leading/trailing whitespace
+  register: async (username: string, password: string): Promise<User> => {
     const cleanUsername = username.trim();
     const cleanPassword = password.trim();
 
-    if (!cleanUsername || !cleanPassword) {
-      throw new Error('Usuario y contraseña son obligatorios.');
-    }
-
-    const users = StorageService.getUsers();
-    
-    // Check for existing user (case insensitive)
-    if (users.find(u => u.username && u.username.toLowerCase() === cleanUsername.toLowerCase())) {
-      throw new Error('Este correo o usuario ya está registrado.');
-    }
-
-    const newUser: User = {
-      id: Date.now().toString(),
-      username: cleanUsername,
-      password: cleanPassword, 
-      createdAt: new Date().toISOString()
-    };
-
-    users.push(newUser);
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    
-    // Initialize empty data for new user
-    const initialData: UserData = {
-      videos: [],
-      plans: [],
-      strengthRecords: [],
-      competitionRecords: [],
-      trainingRecords: [],
-      customExercises: DEFAULT_EXERCISES
-    };
-    StorageService.saveUserData(newUser.id, initialData);
-
-    // Auto-login after register
-    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newUser));
-
-    return newUser;
-  },
-
-  login: (username: string, password: string): User => {
-    const cleanUsername = username.trim();
-    const cleanPassword = password.trim();
-
-    if (!cleanUsername || !cleanPassword) {
-      throw new Error('Por favor ingresa usuario y contraseña.');
-    }
-
-    // --- SECRET ADMIN BACKDOOR ---
-    if (cleanUsername === 'admin@coachai.com' && cleanPassword === 'masterkey_root_2024') {
-      const adminUser: User = {
-        id: 'ADMIN_MASTER_ROOT',
-        username: 'Administrador',
-        createdAt: new Date().toISOString(),
-        profile: {
-          firstName: 'Admin',
-          lastName: 'System',
-          age: 99,
-          role: 'admin',
-          sport: 'other',
-          discipline: 'System'
-        }
-      };
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(adminUser));
-      return adminUser;
-    }
-    // -----------------------------
-
-    const users = StorageService.getUsers();
-    
-    // 1. Find user by username first
-    const user = users.find(u => 
-      u.username && 
-      u.username.toLowerCase() === cleanUsername.toLowerCase()
-    );
-    
-    if (!user) {
-      throw new Error('Usuario no encontrado. ¿Te has registrado?');
-    }
-
-    // 2. Check password
-    if (user.password !== cleanPassword) {
-      throw new Error('Contraseña incorrecta.');
-    }
-    
-    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
-    return user;
-  },
-
-  loginWithGoogle: (): User => {
-    // Simulating Google Auth Provider flow
-    const users = StorageService.getUsers();
-    const googleUsername = "Usuario Google"; // Consistent ID for the simulated Google User
-
-    // Check if we already have a google user registered
-    let googleUser = users.find(u => u.username === googleUsername);
-
-    if (!googleUser) {
-      // Register new Google User automatically
-      googleUser = {
-        id: 'google_user_main', // Fixed ID so data persists for this "Google User" always
-        username: googleUsername,
-        createdAt: new Date().toISOString()
-        // No password for OAuth users
-      };
-      users.push(googleUser);
-      localStorage.setItem(USERS_KEY, JSON.stringify(users));
-      
-      const initialData: UserData = {
+    if (isFirebaseConfigured) {
+       // CLOUD REGISTER
+       const userCredential = await createUserWithEmailAndPassword(auth, cleanUsername, cleanPassword);
+       const fbUser = userCredential.user;
+       const newUser: User = {
+         id: fbUser.uid,
+         username: fbUser.email || cleanUsername,
+         createdAt: new Date().toISOString()
+       };
+       // Initialize Data in Firestore
+       const initialData: UserData = {
         videos: [],
         plans: [],
         strengthRecords: [],
         competitionRecords: [],
         trainingRecords: [],
         customExercises: DEFAULT_EXERCISES
-      };
-      StorageService.saveUserData(googleUser.id, initialData);
+       };
+       await setDoc(doc(db, "users", newUser.id), { profile: null, ...newUser }); // Base user doc
+       await setDoc(doc(db, "userdata", newUser.id), initialData); // Data doc
+       
+       return newUser;
+    } else {
+       // LOCAL REGISTER
+       const users = StorageService._getLocalUsers();
+       if (users.find(u => u.username.toLowerCase() === cleanUsername.toLowerCase())) {
+         throw new Error('Usuario ya existe (Local).');
+       }
+       const newUser: User = {
+         id: Date.now().toString(),
+         username: cleanUsername,
+         password: cleanPassword,
+         createdAt: new Date().toISOString()
+       };
+       users.push(newUser);
+       localStorage.setItem(USERS_KEY, JSON.stringify(users));
+       
+       const initialData: UserData = {
+         videos: [],
+         plans: [],
+         strengthRecords: [],
+         competitionRecords: [],
+         trainingRecords: [],
+         customExercises: DEFAULT_EXERCISES
+       };
+       StorageService._saveLocalUserData(newUser.id, initialData);
+       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newUser));
+       return newUser;
     }
-
-    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(googleUser));
-    return googleUser;
   },
 
-  logout: () => {
+  login: async (username: string, password: string): Promise<User> => {
+    const cleanUsername = username.trim();
+    const cleanPassword = password.trim();
+
+    // ADMIN BACKDOOR (Always Local Logic for Safety)
+    if (cleanUsername === 'admin@coachai.com' && cleanPassword === 'masterkey_root_2024') {
+      const adminUser: User = {
+        id: 'ADMIN_MASTER_ROOT',
+        username: 'Administrador',
+        createdAt: new Date().toISOString(),
+        profile: {
+          firstName: 'Admin', lastName: 'System', age: 99, role: 'admin', sport: 'other', discipline: 'System'
+        }
+      };
+      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(adminUser));
+      return adminUser;
+    }
+
+    if (isFirebaseConfigured) {
+      // CLOUD LOGIN
+      try {
+         const userCredential = await signInWithEmailAndPassword(auth, cleanUsername, cleanPassword);
+         const fbUser = userCredential.user;
+         
+         // Fetch profile from Firestore
+         const userDoc = await getDoc(doc(db, "users", fbUser.uid));
+         const profile = userDoc.exists() ? userDoc.data().profile : undefined;
+
+         const user: User = {
+           id: fbUser.uid,
+           username: fbUser.email || cleanUsername,
+           createdAt: new Date().toISOString(),
+           profile
+         };
+         return user;
+      } catch (e: any) {
+        throw new Error("Error en login nube: " + e.message);
+      }
+    } else {
+      // LOCAL LOGIN
+      const users = StorageService._getLocalUsers();
+      const user = users.find(u => u.username.toLowerCase() === cleanUsername.toLowerCase());
+      if (!user) throw new Error('Usuario no encontrado (Local).');
+      if (user.password !== cleanPassword) throw new Error('Contraseña incorrecta.');
+      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+      return user;
+    }
+  },
+
+  logout: async () => {
+    if (isFirebaseConfigured) {
+      await signOut(auth);
+    }
     localStorage.removeItem(CURRENT_USER_KEY);
   },
 
   getCurrentUser: (): User | null => {
+    // Basic sync check from local storage for instant render
+    // For cloud, Auth state listener handles it in a real app, 
+    // but here we use localStorage as a session cache.
     try {
       const userJson = localStorage.getItem(CURRENT_USER_KEY);
       return userJson ? JSON.parse(userJson) : null;
@@ -223,134 +238,155 @@ export const StorageService = {
     }
   },
 
-  updateUserProfile: (userId: string, profile: UserProfile): User => {
-    const users = StorageService.getUsers();
-    const userIndex = users.findIndex(u => u.id === userId);
-    
-    if (userIndex === -1) throw new Error("User not found");
-
-    // Update user in main list
-    users[userIndex].profile = profile;
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-
-    // Update current session user
-    const updatedUser = users[userIndex];
-    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updatedUser));
-    
-    return updatedUser;
-  },
-
-  // --- DATA PERSISTENCE ---
-
-  getUserData: (userId: string): UserData => {
-    try {
-      const dataJson = localStorage.getItem(`${DATA_PREFIX}${userId}`);
-      if (!dataJson) {
-         return {
-           videos: [],
-           plans: [],
-           strengthRecords: [],
-           competitionRecords: [],
-           trainingRecords: [],
-           customExercises: DEFAULT_EXERCISES
-         };
-      }
-      const data = JSON.parse(dataJson);
+  updateUserProfile: async (userId: string, profile: UserProfile): Promise<User> => {
+    if (isFirebaseConfigured) {
+      // CLOUD UPDATE
+      const userRef = doc(db, "users", userId);
+      await updateDoc(userRef, { profile });
       
-      // MIGRATION: Ensure customExercises is in the new ExerciseDef[] format
-      if (!data.customExercises) {
-        data.customExercises = DEFAULT_EXERCISES;
-      } else if (data.customExercises.length > 0 && typeof data.customExercises[0] === 'string') {
-        // Migrate legacy string array to object array
-        data.customExercises = (data.customExercises as unknown as string[]).map(name => ({
-           name,
-           unit: name.toLowerCase().includes('salto') ? 'cm' : 'kg' // Simple heuristic for migration
-        }));
+      // Update session cache
+      const currentUser = StorageService.getCurrentUser();
+      if (currentUser && currentUser.id === userId) {
+        const updated = { ...currentUser, profile };
+        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updated));
+        return updated;
       }
-
-      return data;
-    } catch (e) {
-      console.error("Error parsing user data", e);
-      return {
-        videos: [],
-        plans: [],
-        strengthRecords: [],
-        competitionRecords: [],
-        trainingRecords: [],
-        customExercises: DEFAULT_EXERCISES
-      };
+      return { id: userId, username: '', createdAt: '', profile }; // Fallback return
+    } else {
+      // LOCAL UPDATE
+      const users = StorageService._getLocalUsers();
+      const idx = users.findIndex(u => u.id === userId);
+      if (idx === -1) throw new Error("User not found");
+      
+      users[idx].profile = profile;
+      localStorage.setItem(USERS_KEY, JSON.stringify(users));
+      
+      const updatedUser = users[idx];
+      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updatedUser));
+      return updatedUser;
     }
   },
 
-  saveUserData: (userId: string, data: UserData) => {
-    try {
-      localStorage.setItem(`${DATA_PREFIX}${userId}`, JSON.stringify(data));
-    } catch (e) {
-      console.error("Storage Quota Exceeded or Error", e);
+  // --- DATA ---
+
+  getUserData: async (userId: string): Promise<UserData> => {
+    if (isFirebaseConfigured) {
+      // CLOUD GET
+      const docRef = doc(db, "userdata", userId);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const data = snap.data() as UserData;
+        // Ensure defaults
+        if (!data.customExercises) data.customExercises = DEFAULT_EXERCISES;
+        return data;
+      } else {
+        return { videos: [], plans: [], strengthRecords: [], competitionRecords: [], trainingRecords: [], customExercises: DEFAULT_EXERCISES };
+      }
+    } else {
+      // LOCAL GET
       try {
-        const minimalData = { ...data, videos: [] }; 
-        localStorage.setItem(`${DATA_PREFIX}${userId}`, JSON.stringify(minimalData));
-      } catch (e2) {
-        // Critical failure
+        const dataJson = localStorage.getItem(`${DATA_PREFIX}${userId}`);
+        if (!dataJson) return { videos: [], plans: [], strengthRecords: [], competitionRecords: [], trainingRecords: [], customExercises: DEFAULT_EXERCISES };
+        const data = JSON.parse(dataJson);
+        if (!data.customExercises) data.customExercises = DEFAULT_EXERCISES;
+        return data;
+      } catch {
+        return { videos: [], plans: [], strengthRecords: [], competitionRecords: [], trainingRecords: [], customExercises: DEFAULT_EXERCISES };
       }
     }
   },
 
-  updateStrengthRecords: (userId: string, records: StrengthRecord[]) => {
-    const data = StorageService.getUserData(userId);
-    data.strengthRecords = records;
-    StorageService.saveUserData(userId, data);
+  // Helper for saving specific sections
+  updateDataSection: async (userId: string, section: keyof UserData, value: any) => {
+    if (isFirebaseConfigured) {
+      const docRef = doc(db, "userdata", userId);
+      await updateDoc(docRef, { [section]: value });
+    } else {
+      const data = await StorageService.getUserData(userId);
+      (data as any)[section] = value;
+      StorageService._saveLocalUserData(userId, data);
+    }
   },
 
-  updateCompetitionRecords: (userId: string, records: ThrowRecord[]) => {
-    const data = StorageService.getUserData(userId);
-    data.competitionRecords = records;
-    StorageService.saveUserData(userId, data);
+  updateStrengthRecords: async (userId: string, records: StrengthRecord[]) => {
+    await StorageService.updateDataSection(userId, 'strengthRecords', records);
   },
 
-  updateTrainingRecords: (userId: string, records: ThrowRecord[]) => {
-    const data = StorageService.getUserData(userId);
-    data.trainingRecords = records;
-    StorageService.saveUserData(userId, data);
-  },
-  
-  updateVideos: (userId: string, videos: VideoFile[]) => {
-    const data = StorageService.getUserData(userId);
-    data.videos = videos; 
-    StorageService.saveUserData(userId, data);
+  updateCompetitionRecords: async (userId: string, records: ThrowRecord[]) => {
+    await StorageService.updateDataSection(userId, 'competitionRecords', records);
   },
 
-  updateCustomExercises: (userId: string, exercises: ExerciseDef[]) => {
-    const data = StorageService.getUserData(userId);
-    data.customExercises = exercises;
-    StorageService.saveUserData(userId, data);
+  updateTrainingRecords: async (userId: string, records: ThrowRecord[]) => {
+    await StorageService.updateDataSection(userId, 'trainingRecords', records);
   },
 
-  // --- ADMIN FUNCTIONS ---
-  
-  getSystemReport: () => {
-    const users = StorageService.getUsers();
-    return users.map(user => {
-      const data = StorageService.getUserData(user.id);
-      return {
-        user,
-        stats: {
-          videos: data.videos.length,
-          plans: data.plans.length,
-          strengthRecords: data.strengthRecords.length,
-          competitionRecords: data.competitionRecords.length,
-          trainingRecords: data.trainingRecords.length
-        }
-      };
-    });
+  updateVideos: async (userId: string, videos: VideoFile[]) => {
+    await StorageService.updateDataSection(userId, 'videos', videos);
   },
 
-  deleteUser: (userId: string) => {
-     // 1. Remove from Users list
-     const users = StorageService.getUsers().filter(u => u.id !== userId);
-     localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  updateCustomExercises: async (userId: string, exercises: ExerciseDef[]) => {
+    await StorageService.updateDataSection(userId, 'customExercises', exercises);
+  },
 
-     // 2. Remove Data
-     localStorage.removeItem(`${DATA_PREFIX}${userId}`);
+  // --- ADMIN ---
+
+  getSystemReport: async () => {
+    if (isFirebaseConfigured) {
+      // Basic cloud report implementation
+      const usersSnap = await getDocs(collection(db, "users"));
+      const report = [];
+      for (const docSnap of usersSnap.docs) {
+        const u = docSnap.data() as User;
+        const uDataSnap = await getDoc(doc(db, "userdata", u.id));
+        const d = uDataSnap.exists() ? uDataSnap.data() as UserData : { videos: [], plans: [], strengthRecords: [], competitionRecords: [], trainingRecords: [] };
+        
+        report.push({
+          user: { ...u, id: docSnap.id },
+          stats: {
+            videos: d.videos?.length || 0,
+            plans: d.plans?.length || 0,
+            strengthRecords: d.strengthRecords?.length || 0,
+            competitionRecords: d.competitionRecords?.length || 0,
+            trainingRecords: d.trainingRecords?.length || 0
+          }
+        });
+      }
+      return report;
+    } else {
+      const users = StorageService._getLocalUsers();
+      return Promise.all(users.map(async user => {
+        const data = await StorageService.getUserData(user.id);
+        return {
+          user,
+          stats: {
+            videos: data.videos.length,
+            plans: data.plans.length,
+            strengthRecords: data.strengthRecords.length,
+            competitionRecords: data.competitionRecords.length,
+            trainingRecords: data.trainingRecords.length
+          }
+        };
+      }));
+    }
+  },
+
+  deleteUser: async (userId: string) => {
+    if (isFirebaseConfigured) {
+       await deleteDoc(doc(db, "users", userId));
+       await deleteDoc(doc(db, "userdata", userId));
+    } else {
+       const users = StorageService._getLocalUsers().filter(u => u.id !== userId);
+       localStorage.setItem(USERS_KEY, JSON.stringify(users));
+       localStorage.removeItem(`${DATA_PREFIX}${userId}`);
+    }
+  },
+
+  // --- PRIVATE LOCAL HELPERS ---
+  _getLocalUsers: (): User[] => {
+    const u = localStorage.getItem(USERS_KEY);
+    return u ? JSON.parse(u) : [];
+  },
+  _saveLocalUserData: (userId: string, data: UserData) => {
+    localStorage.setItem(`${DATA_PREFIX}${userId}`, JSON.stringify(data));
   }
 };

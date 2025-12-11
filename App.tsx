@@ -66,25 +66,31 @@ export default function App() {
       return; 
     }
 
-    // Load User Data from "Database"
-    const data = StorageService.getUserData(user.id);
+    // Load User Data from "Database" (Async now)
+    const data = await StorageService.getUserData(user.id);
+    
     setStrengthRecords(data.strengthRecords || []);
     setCompetitionRecords(data.competitionRecords || []);
     setTrainingRecords(data.trainingRecords || []);
     setCustomExercises(data.customExercises || []);
     
-    // Hydrate Videos from IndexedDB
+    // Hydrate Videos
+    // If Cloud Mode, we would ideally fetch from Storage URLs, 
+    // but for now we keep the hybrid approach: 
+    // Metadata from DB, Binary from IndexedDB (Local) or URL (Cloud).
     let loadedVideos = data.videos || [];
     if (loadedVideos.length > 0) {
       const hydrated = await Promise.all(loadedVideos.map(async (v) => {
+         // Try Local IndexedDB first (faster/offline)
          try {
            const blob = await VideoStorage.getVideo(v.id);
            if (blob) {
-             return { ...v, url: URL.createObjectURL(blob) };
+             return { ...v, url: URL.createObjectURL(blob), isLocal: true };
            }
          } catch (e) {
-            console.error("Could not load video blob", v.id, e);
+           // If error or not found locally
          }
+         // If no local blob, v.url should hopefully be a remote URL (if implemented) or it remains invalid/placeholder
          return v;
       }));
       setVideos(hydrated);
@@ -95,13 +101,13 @@ export default function App() {
     setCurrentScreen('dashboard');
   };
 
-  const handleOnboardingComplete = (updatedUser: User) => {
+  const handleOnboardingComplete = async (updatedUser: User) => {
     setCurrentUser(updatedUser);
     setCurrentScreen('dashboard');
   };
 
-  const handleLogout = () => {
-    StorageService.logout();
+  const handleLogout = async () => {
+    await StorageService.logout();
     setCurrentUser(null);
     setCurrentScreen('login');
     // Clear State
@@ -132,12 +138,12 @@ export default function App() {
     
     const newId = Date.now().toString();
 
-    // 1. Save File to IndexedDB
+    // 1. Save File to IndexedDB (Always for offline/fast access)
     try {
       await VideoStorage.saveVideo(newId, file);
     } catch (e) {
       console.error("Failed to save video to DB", e);
-      alert("Error guardando el video en el dispositivo. Intenta de nuevo.");
+      alert("Error guardando el video en el dispositivo.");
       return;
     }
 
@@ -155,7 +161,7 @@ export default function App() {
     
     const updatedVideos = [newVideo, ...videos];
     setVideos(updatedVideos);
-    StorageService.updateVideos(currentUser.id, updatedVideos);
+    await StorageService.updateVideos(currentUser.id, updatedVideos);
   };
 
   const handleDeleteVideo = async (id: string) => {
@@ -165,7 +171,7 @@ export default function App() {
 
     const updatedVideos = videos.filter(v => v.id !== id);
     setVideos(updatedVideos);
-    StorageService.updateVideos(currentUser.id, updatedVideos);
+    await StorageService.updateVideos(currentUser.id, updatedVideos);
   };
 
   // Plan Handlers
@@ -185,62 +191,61 @@ export default function App() {
   };
 
   // Strength Handlers
-  const handleAddStrength = (record: Omit<StrengthRecord, 'id'>) => {
+  const handleAddStrength = async (record: Omit<StrengthRecord, 'id'>) => {
     if (!currentUser) return;
     const newRecord = { ...record, id: Date.now().toString() };
     const updated = [...strengthRecords, newRecord];
     setStrengthRecords(updated);
-    StorageService.updateStrengthRecords(currentUser.id, updated);
+    await StorageService.updateStrengthRecords(currentUser.id, updated);
   };
   
-  const handleDeleteStrength = (id: string) => {
+  const handleDeleteStrength = async (id: string) => {
     if (!currentUser) return;
     const updated = strengthRecords.filter(r => r.id !== id);
     setStrengthRecords(updated);
-    StorageService.updateStrengthRecords(currentUser.id, updated);
+    await StorageService.updateStrengthRecords(currentUser.id, updated);
   };
 
-  const handleUpdateExercises = (exercises: ExerciseDef[]) => {
+  const handleUpdateExercises = async (exercises: ExerciseDef[]) => {
     if (!currentUser) return;
     setCustomExercises(exercises);
-    StorageService.updateCustomExercises(currentUser.id, exercises);
+    await StorageService.updateCustomExercises(currentUser.id, exercises);
   };
 
   // Competition Handlers 
-  const handleAddCompetition = (record: Omit<ThrowRecord, 'id'>) => {
+  const handleAddCompetition = async (record: Omit<ThrowRecord, 'id'>) => {
     if (!currentUser) return;
     const newRecord = { ...record, id: Date.now().toString() };
     const updated = [...competitionRecords, newRecord];
     setCompetitionRecords(updated);
-    StorageService.updateCompetitionRecords(currentUser.id, updated);
+    await StorageService.updateCompetitionRecords(currentUser.id, updated);
   };
   
-  const handleDeleteCompetition = (id: string) => {
+  const handleDeleteCompetition = async (id: string) => {
     if (!currentUser) return;
     const updated = competitionRecords.filter(r => r.id !== id);
     setCompetitionRecords(updated);
-    StorageService.updateCompetitionRecords(currentUser.id, updated);
+    await StorageService.updateCompetitionRecords(currentUser.id, updated);
   };
 
   // Training (Log) Handlers
-  const handleAddTraining = (record: Omit<ThrowRecord, 'id'>) => {
+  const handleAddTraining = async (record: Omit<ThrowRecord, 'id'>) => {
     if (!currentUser) return;
     const newRecord = { ...record, id: Date.now().toString() };
     const updated = [...trainingRecords, newRecord];
     setTrainingRecords(updated);
-    StorageService.updateTrainingRecords(currentUser.id, updated);
+    await StorageService.updateTrainingRecords(currentUser.id, updated);
   };
   
-  const handleDeleteTraining = (id: string) => {
+  const handleDeleteTraining = async (id: string) => {
     if (!currentUser) return;
     const updated = trainingRecords.filter(r => r.id !== id);
     setTrainingRecords(updated);
-    StorageService.updateTrainingRecords(currentUser.id, updated);
+    await StorageService.updateTrainingRecords(currentUser.id, updated);
   };
 
   // Global Click Handler for Mobile Menu Toggle Logic
   const handleAppClick = (e: React.MouseEvent) => {
-    // Only logic for mobile menu appearing/disappearing if needed
     if (window.innerWidth >= 768) return;
     if (isMobileMenuOpen) return;
 
@@ -346,7 +351,6 @@ export default function App() {
              </div>
 
              {/* DESKTOP TOGGLE (Invisible Trigger Zone) */}
-             {/* This creates a 100x100px area in top-left that reveals the button on hover */}
              <div className="hidden md:flex absolute top-0 left-0 w-28 h-28 z-40 items-start justify-start p-6 opacity-0 hover:opacity-100 transition-opacity duration-300">
                 <button 
                    onClick={() => setIsDesktopSidebarOpen(!isDesktopSidebarOpen)}
