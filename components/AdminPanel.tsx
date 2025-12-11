@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { StorageService } from '../services/storageService';
-import { User } from '../types';
-import { Shield, Users, Database, LogOut, Search, Trash2, Video, Dumbbell, FileText } from 'lucide-react';
+import { User, UserData, StrengthRecord, ThrowRecord, VideoFile } from '../types';
+import { Shield, Users, Database, LogOut, Search, Trash2, Video, Dumbbell, FileText, ChevronLeft, MapPin, Calendar, Trophy, Target, Play, X } from 'lucide-react';
 
 interface AdminPanelProps {
   onLogout: () => void;
@@ -22,6 +22,13 @@ interface UserReport {
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
   const [users, setUsers] = useState<UserReport[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // State for Detail View
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [selectedUserData, setSelectedUserData] = useState<UserData | null>(null);
+
+  // State for Video Player Modal
+  const [playingVideo, setPlayingVideo] = useState<VideoFile | null>(null);
 
   useEffect(() => {
     loadData();
@@ -32,9 +39,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
     setUsers(report);
   };
 
-  const handleDeleteUser = (id: string, username: string) => {
+  const handleUserClick = (user: User) => {
+    const data = StorageService.getUserData(user.id);
+    setSelectedUser(user);
+    setSelectedUserData(data);
+    // No need for window.scrollTo(0,0) if we use a scroll container, we might scroll the container top though
+  };
+
+  const handleBackToList = () => {
+    setSelectedUser(null);
+    setSelectedUserData(null);
+  };
+
+  const handleDeleteUser = (e: React.MouseEvent, id: string, username: string) => {
+    e.stopPropagation();
     if (confirm(`¿Estás SEGURO de que quieres eliminar al usuario "${username}" y TODOS sus datos? Esta acción es irreversible.`)) {
       StorageService.deleteUser(id);
+      if (selectedUser?.id === id) {
+        handleBackToList();
+      }
       loadData();
     }
   };
@@ -47,8 +70,246 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
   const totalVideos = users.reduce((acc, curr) => acc + curr.stats.videos, 0);
   const totalRecords = users.reduce((acc, curr) => acc + curr.stats.strengthRecords + curr.stats.competitionRecords + curr.stats.trainingRecords, 0);
 
+  // --- RENDER: DETAIL VIEW ---
+  if (selectedUser && selectedUserData) {
+     return (
+        <div className="h-screen overflow-y-auto bg-black text-white font-sans pb-20 relative">
+           {/* Detail Navbar */}
+           <div className="border-b border-neutral-800 bg-neutral-900/50 backdrop-blur-xl sticky top-0 z-50">
+              <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+                 <div className="flex items-center gap-4">
+                    <button 
+                       onClick={handleBackToList}
+                       className="p-2 hover:bg-neutral-800 rounded-full text-neutral-400 hover:text-white transition-colors"
+                    >
+                       <ChevronLeft size={24} />
+                    </button>
+                    <div>
+                       <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+                          {selectedUser.profile?.firstName} {selectedUser.profile?.lastName}
+                          <span className="text-xs bg-orange-600 px-2 py-0.5 rounded text-white font-mono">
+                             {selectedUser.profile?.role}
+                          </span>
+                       </h1>
+                       <p className="text-xs text-neutral-500 font-mono">ID: {selectedUser.id}</p>
+                    </div>
+                 </div>
+                 <div className="flex items-center gap-4">
+                    <div className="text-right hidden sm:block">
+                        <p className="text-xs text-neutral-400 uppercase">Credenciales</p>
+                        <p className="text-sm font-mono text-white">
+                           {selectedUser.username} <span className="text-neutral-600">|</span> {selectedUser.password || 'OAuth'}
+                        </p>
+                    </div>
+                    {selectedUser.username !== 'admin@coachai.com' && (
+                       <button 
+                          onClick={(e) => handleDeleteUser(e, selectedUser.id, selectedUser.username)}
+                          className="p-2 bg-red-900/20 text-red-500 rounded-lg hover:bg-red-900/40 transition-colors"
+                          title="Eliminar Usuario"
+                       >
+                          <Trash2 size={20} />
+                       </button>
+                    )}
+                 </div>
+              </div>
+           </div>
+
+           <div className="max-w-7xl mx-auto px-6 py-8 space-y-10">
+              
+              {/* 1. Profile Summary */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                 <div className="bg-neutral-900 p-6 rounded-2xl border border-neutral-800">
+                    <p className="text-neutral-500 text-xs uppercase mb-1">Deporte</p>
+                    <p className="text-xl font-bold text-orange-500 capitalize">{selectedUser.profile?.sport || 'N/A'}</p>
+                 </div>
+                 <div className="bg-neutral-900 p-6 rounded-2xl border border-neutral-800">
+                    <p className="text-neutral-500 text-xs uppercase mb-1">Disciplina</p>
+                    <p className="text-xl font-bold text-white">{selectedUser.profile?.discipline || 'N/A'}</p>
+                 </div>
+                 <div className="bg-neutral-900 p-6 rounded-2xl border border-neutral-800">
+                    <p className="text-neutral-500 text-xs uppercase mb-1">Edad</p>
+                    <p className="text-xl font-bold text-white">{selectedUser.profile?.age} años</p>
+                 </div>
+                 <div className="bg-neutral-900 p-6 rounded-2xl border border-neutral-800">
+                    <p className="text-neutral-500 text-xs uppercase mb-1">Total Datos</p>
+                    <p className="text-xl font-bold text-white">
+                       {selectedUserData.videos.length + selectedUserData.strengthRecords.length + selectedUserData.competitionRecords.length}
+                    </p>
+                 </div>
+              </div>
+
+              {/* 2. VIDEOS SECTION */}
+              <div>
+                 <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                    <Video className="text-blue-500" />
+                    Videos Subidos ({selectedUserData.videos.length})
+                 </h2>
+                 {selectedUserData.videos.length === 0 ? (
+                    <div className="p-8 border border-dashed border-neutral-800 rounded-2xl text-center text-neutral-500">
+                       El usuario no ha subido vídeos.
+                    </div>
+                 ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                       {selectedUserData.videos.map(video => (
+                          <div 
+                             key={video.id} 
+                             onClick={() => setPlayingVideo(video)}
+                             className="bg-neutral-900 rounded-xl overflow-hidden border border-neutral-800 group cursor-pointer hover:border-orange-500 transition-colors"
+                          >
+                             <div className="aspect-video relative bg-black">
+                                <img src={video.thumbnail} alt={video.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-60 transition-opacity" />
+                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/20 transition-opacity">
+                                   <div className="w-12 h-12 bg-orange-600 rounded-full flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
+                                      <Play className="text-white fill-white ml-1" size={20} />
+                                   </div>
+                                </div>
+                                <div className="absolute bottom-1 right-1 bg-black/70 text-white text-[10px] px-1 rounded font-mono">
+                                   {video.duration}
+                                </div>
+                             </div>
+                             <div className="p-3">
+                                <p className="text-sm font-medium text-white truncate group-hover:text-orange-400 transition-colors">{video.name}</p>
+                                <p className="text-xs text-neutral-500 mt-1">{video.date}</p>
+                                {video.isLocal && <p className="text-[10px] text-yellow-500 mt-1">*Local Storage</p>}
+                             </div>
+                          </div>
+                       ))}
+                    </div>
+                 )}
+              </div>
+
+              {/* 3. RECORDS SECTION (Two Columns) */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                 
+                 {/* Competition Records */}
+                 <div>
+                    <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                       <Trophy className="text-orange-500" />
+                       Competiciones ({selectedUserData.competitionRecords.length})
+                    </h2>
+                    <div className="bg-neutral-900 rounded-2xl border border-neutral-800 overflow-hidden max-h-80 overflow-y-auto">
+                       <table className="w-full text-left text-sm">
+                          <thead className="bg-neutral-950 text-neutral-500 text-xs uppercase sticky top-0">
+                             <tr>
+                                <th className="p-3">Fecha</th>
+                                <th className="p-3">Lugar</th>
+                                <th className="p-3 text-right">Marca</th>
+                             </tr>
+                          </thead>
+                          <tbody className="divide-y divide-neutral-800">
+                             {selectedUserData.competitionRecords.length === 0 && (
+                                <tr><td colSpan={3} className="p-4 text-center text-neutral-500">Sin datos.</td></tr>
+                             )}
+                             {selectedUserData.competitionRecords.map(rec => (
+                                <tr key={rec.id} className="hover:bg-neutral-800/50">
+                                   <td className="p-3 text-neutral-400">{rec.date}</td>
+                                   <td className="p-3 text-white">{rec.location}</td>
+                                   <td className="p-3 text-right font-bold text-orange-400">{rec.distance}</td>
+                                </tr>
+                             ))}
+                          </tbody>
+                       </table>
+                    </div>
+                 </div>
+
+                 {/* Strength Records */}
+                 <div>
+                    <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                       <Dumbbell className="text-purple-500" />
+                       Fuerza ({selectedUserData.strengthRecords.length})
+                    </h2>
+                    <div className="bg-neutral-900 rounded-2xl border border-neutral-800 overflow-hidden max-h-80 overflow-y-auto">
+                       <table className="w-full text-left text-sm">
+                          <thead className="bg-neutral-950 text-neutral-500 text-xs uppercase sticky top-0">
+                             <tr>
+                                <th className="p-3">Fecha</th>
+                                <th className="p-3">Ejercicio</th>
+                                <th className="p-3 text-right">Peso</th>
+                             </tr>
+                          </thead>
+                          <tbody className="divide-y divide-neutral-800">
+                             {selectedUserData.strengthRecords.length === 0 && (
+                                <tr><td colSpan={3} className="p-4 text-center text-neutral-500">Sin datos.</td></tr>
+                             )}
+                             {selectedUserData.strengthRecords.map(rec => (
+                                <tr key={rec.id} className="hover:bg-neutral-800/50">
+                                   <td className="p-3 text-neutral-400">{rec.date}</td>
+                                   <td className="p-3 text-white">{rec.exercise}</td>
+                                   <td className="p-3 text-right font-bold text-purple-400">{rec.weight}</td>
+                                </tr>
+                             ))}
+                          </tbody>
+                       </table>
+                    </div>
+                 </div>
+
+                 {/* Training Records */}
+                 <div className="lg:col-span-2">
+                    <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                       <Target className="text-emerald-500" />
+                       Entrenamientos ({selectedUserData.trainingRecords.length})
+                    </h2>
+                    <div className="bg-neutral-900 rounded-2xl border border-neutral-800 overflow-hidden max-h-80 overflow-y-auto">
+                       <table className="w-full text-left text-sm">
+                          <thead className="bg-neutral-950 text-neutral-500 text-xs uppercase sticky top-0">
+                             <tr>
+                                <th className="p-3">Fecha</th>
+                                <th className="p-3">Notas/Ubicación</th>
+                                <th className="p-3 text-right">Resultado</th>
+                             </tr>
+                          </thead>
+                          <tbody className="divide-y divide-neutral-800">
+                             {selectedUserData.trainingRecords.length === 0 && (
+                                <tr><td colSpan={3} className="p-4 text-center text-neutral-500">Sin datos.</td></tr>
+                             )}
+                             {selectedUserData.trainingRecords.map(rec => (
+                                <tr key={rec.id} className="hover:bg-neutral-800/50">
+                                   <td className="p-3 text-neutral-400">{rec.date}</td>
+                                   <td className="p-3 text-white">{rec.location}</td>
+                                   <td className="p-3 text-right font-bold text-emerald-400">{rec.distance}</td>
+                                </tr>
+                             ))}
+                          </tbody>
+                       </table>
+                    </div>
+                 </div>
+
+              </div>
+
+           </div>
+
+           {/* --- VIDEO PLAYER MODAL --- */}
+           {playingVideo && (
+              <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+                 <button 
+                    onClick={() => setPlayingVideo(null)}
+                    className="absolute top-4 right-4 p-3 text-white/50 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-all z-50 group"
+                 >
+                    <X size={28} className="group-hover:scale-110 transition-transform" />
+                 </button>
+                 
+                 <div className="w-full max-w-6xl aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl ring-1 ring-white/10 relative">
+                    <video 
+                       src={playingVideo.url} 
+                       controls 
+                       autoPlay 
+                       className="w-full h-full object-contain"
+                    />
+                    <div className="absolute bottom-6 left-6 bg-black/70 backdrop-blur-md px-4 py-2 rounded-lg text-white border border-white/10">
+                       <p className="font-bold text-sm">{playingVideo.name}</p>
+                       <p className="text-xs text-neutral-400">{playingVideo.date}</p>
+                    </div>
+                 </div>
+              </div>
+           )}
+
+        </div>
+     );
+  }
+
+  // --- RENDER: LIST VIEW (Default) ---
   return (
-    <div className="min-h-screen bg-black text-white font-sans">
+    <div className="h-screen overflow-y-auto bg-black text-white font-sans">
       {/* Navbar */}
       <div className="border-b border-neutral-800 bg-neutral-900/50 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -85,18 +346,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
            
            <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-2xl relative overflow-hidden group">
               <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
-                 <Database size={64} />
-              </div>
-              <p className="text-neutral-500 text-sm font-medium">Videos Almacenados</p>
-              <p className="text-4xl font-bold text-white mt-1">{totalVideos}</p>
-           </div>
-
-           <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-2xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
                  <Dumbbell size={64} />
               </div>
               <p className="text-neutral-500 text-sm font-medium">Registros de Datos</p>
               <p className="text-4xl font-bold text-white mt-1">{totalRecords}</p>
+           </div>
+
+           <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-2xl relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
+                 <Database size={64} />
+              </div>
+              <p className="text-neutral-500 text-sm font-medium">Videos Almacenados</p>
+              <p className="text-4xl font-bold text-white mt-1">{totalVideos}</p>
            </div>
         </div>
 
@@ -131,12 +392,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
                           <td colSpan={5} className="p-8 text-center text-neutral-500">No se encontraron usuarios.</td>
                        </tr>
                     ) : filteredUsers.map((item) => (
-                       <tr key={item.user.id} className="hover:bg-neutral-800/50 transition-colors">
+                       <tr 
+                         key={item.user.id} 
+                         onClick={() => handleUserClick(item.user)}
+                         className="hover:bg-neutral-800/50 transition-colors cursor-pointer group"
+                       >
                           <td className="p-4">
                              <div className="flex flex-col">
                                 <span className="font-mono text-xs text-neutral-600 mb-1">{item.user.id.substring(0,8)}...</span>
-                                <span className="font-bold text-white text-sm">{item.user.username}</span>
-                                <span className="text-xs text-neutral-500">{item.user.password ? `Pass: ${item.user.password}` : 'OAuth User'}</span>
+                                <span className="font-bold text-white text-sm group-hover:text-blue-400 transition-colors">{item.user.username}</span>
+                                <span className="text-xs text-neutral-500">{item.user.password ? `Pass: ***` : 'OAuth User'}</span>
                              </div>
                           </td>
                           <td className="p-4">
@@ -175,7 +440,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout }) => {
                           <td className="p-4 text-right">
                              {item.user.username !== 'admin@coachai.com' && (
                                 <button 
-                                   onClick={() => handleDeleteUser(item.user.id, item.user.username)}
+                                   onClick={(e) => handleDeleteUser(e, item.user.id, item.user.username)}
                                    className="p-2 text-neutral-600 hover:text-red-500 hover:bg-red-900/20 rounded-lg transition-all"
                                    title="Borrar Usuario"
                                 >
