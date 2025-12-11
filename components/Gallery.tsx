@@ -91,13 +91,19 @@ export const Gallery: React.FC<GalleryProps> = ({ videos, onSelectVideo, onUploa
 
   // --- CAMERA LOGIC ---
 
+  // Fix: Assign stream to video element AFTER modal is mounted
+  useEffect(() => {
+    if (showCamera && cameraStream && videoPreviewRef.current) {
+      videoPreviewRef.current.srcObject = cameraStream;
+    }
+  }, [showCamera, cameraStream]);
+
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS);
       setCameraStream(stream);
-      if (videoPreviewRef.current) {
-        videoPreviewRef.current.srcObject = stream;
-      }
+      // We set showCamera true here, but the ref assignment happens in the useEffect above
+      // once the DOM updates and videoPreviewRef.current is not null.
       setShowCamera(true);
     } catch (err) {
       console.error("Error accessing camera:", err);

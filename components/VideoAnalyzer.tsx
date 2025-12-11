@@ -486,6 +486,52 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
     setIsDraggingPan(false);
   };
 
+  // --- NEW: Touch Event Handlers for Mobile ---
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (showChat) return;
+    const touch = e.touches[0];
+    const clientX = touch.clientX;
+    const clientY = touch.clientY;
+
+    if (isDrawingMode) {
+      // Logic identical to mouse down but with touch coords
+      const coords = getLocalCoordinates(clientX, clientY);
+      setIsDrawingLine(true);
+      setCurrentLine({ start: coords, end: coords, color: selectedColor });
+      return;
+    }
+    
+    // Panning logic for mobile
+    if (zoom > 1) {
+      setIsDraggingPan(true);
+      setDragStart({ x: clientX - pan.x, y: clientY - pan.y });
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (showChat) return;
+    const touch = e.touches[0];
+    const clientX = touch.clientX;
+    const clientY = touch.clientY;
+
+    if (isDrawingLine && currentLine) {
+      const coords = getLocalCoordinates(clientX, clientY);
+      setCurrentLine({ ...currentLine, end: coords });
+      return;
+    }
+
+    if (isDraggingPan && zoom > 1) {
+      // Dragging logic
+      setPan({ x: clientX - dragStart.x, y: clientY - dragStart.y });
+    }
+  };
+
+  const handleTouchEnd = () => {
+      // Reuse cleanup logic from mouse up
+      handleMouseUp();
+  };
+
+
   const handleWheel = (e: React.WheelEvent) => {
     if (showChat) return;
     const scaleAmount = -e.deltaY * 0.001;
@@ -604,12 +650,15 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
         {/* --- VIDEO AREA --- */}
         <div 
           ref={containerRef} // Handlers for Pan/Zoom attached here
-          className={`flex-1 flex items-center justify-center bg-neutral-900 overflow-hidden relative group w-full ${isDrawingMode ? 'cursor-crosshair' : (zoom > 1 ? 'cursor-move' : 'cursor-default')}`}
+          className={`flex-1 flex items-center justify-center bg-neutral-900 overflow-hidden relative group w-full touch-none ${isDrawingMode ? 'cursor-crosshair' : (zoom > 1 ? 'cursor-move' : 'cursor-default')}`}
           onWheel={handleWheel}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
         >
           {/* Transform Container */}
           <div 
