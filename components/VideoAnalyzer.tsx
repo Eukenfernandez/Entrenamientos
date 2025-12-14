@@ -182,7 +182,6 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
   
   // Comparison Logic
   const [isLinked, setIsLinked] = useState(true);
-  // NEW: Sync Offset stores the difference (Time2 - Time1) when linking videos
   const [syncOffset, setSyncOffset] = useState(0);
   
   // Scrubber Logic - Use Ref to avoid state closure issues in listeners
@@ -217,7 +216,19 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
   const [currentLine, setCurrentLine] = useState<Line | null>(null);
   const [isDrawingLine, setIsDrawingLine] = useState(false);
 
+  // CORS States
+  const [primaryCors, setPrimaryCors] = useState<"anonymous" | undefined>("anonymous");
+  const [secondaryCors, setSecondaryCors] = useState<"anonymous" | undefined>("anonymous");
+
   // --- Initialization Effects ---
+
+  useEffect(() => {
+    setPrimaryCors("anonymous");
+  }, [video.url]);
+
+  useEffect(() => {
+    setSecondaryCors("anonymous");
+  }, [secondaryUrl]);
 
   // Video 1 Events
   useEffect(() => {
@@ -248,7 +259,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
       v.removeEventListener('loadedmetadata', handleDurationChange);
       v.removeEventListener('ended', handleEnded);
     };
-  }, [isLinked]);
+  }, [isLinked, primaryCors]); // Added primaryCors to re-bind listeners on reload
 
   // Video 2 Events
   useEffect(() => {
@@ -272,7 +283,7 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
       v.removeEventListener('loadedmetadata', handleDurationChange);
       v.removeEventListener('ended', handleEnded);
     };
-  }, [secondaryUrl]);
+  }, [secondaryUrl, secondaryCors]); // Added secondaryCors to re-bind listeners on reload
 
   // Reset View on video change
   useEffect(() => {
@@ -313,15 +324,8 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
   // Toggle Linked/Unlinked State with Offset Calculation
   const toggleSyncMode = () => {
     if (!isLinked) {
-      // User is enabling Sync.
-      // Calculate offset so V2 follows V1 relative to current positions.
-      // offset = time2 - time1
       setSyncOffset(currentTime2 - currentTime);
     } else {
-      // User is unlinking. Reset offset? 
-      // It's usually better to reset offset when unlinking to avoid confusion later,
-      // or we can keep it. For now, let's keep it 0 to keep logic simple when re-linking manually.
-      // Actually, if they unlink, they want to move them independently. When they re-link, we recalculate.
       setSyncOffset(0);
     }
     setIsLinked(!isLinked);
@@ -430,15 +434,11 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
   // --- Zoom/Pan/Draw Logic ---
   
   const getLocalCoordinates = (clientX: number, clientY: number) => {
-    // UPDATED: Calculate relative to the specific video container, not the whole drawing surface
-    // This ensures that when comparing videos, drawing on the left video is accurate relative to its SVG origin.
     const targetRef = primaryVideoContainerRef.current || drawingSurfaceRef.current;
     
     if (!targetRef) return { x: 0, y: 0 };
     const rect = targetRef.getBoundingClientRect();
     
-    // We only need to account for ZOOM in the coordinate system, 
-    // because clientX/Y - rect.left/top handles the pan/position/container offset.
     return {
       x: (clientX - rect.left) / zoom,
       y: (clientY - rect.top) / zoom
@@ -494,14 +494,12 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
     const clientY = touch.clientY;
 
     if (isDrawingMode) {
-      // Logic identical to mouse down but with touch coords
       const coords = getLocalCoordinates(clientX, clientY);
       setIsDrawingLine(true);
       setCurrentLine({ start: coords, end: coords, color: selectedColor });
       return;
     }
     
-    // Panning logic for mobile
     if (zoom > 1) {
       setIsDraggingPan(true);
       setDragStart({ x: clientX - pan.x, y: clientY - pan.y });
@@ -521,13 +519,11 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
     }
 
     if (isDraggingPan && zoom > 1) {
-      // Dragging logic
       setPan({ x: clientX - dragStart.x, y: clientY - dragStart.y });
     }
   };
 
   const handleTouchEnd = () => {
-      // Reuse cleanup logic from mouse up
       handleMouseUp();
   };
 
@@ -573,21 +569,45 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
       if (ctx) {
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      }
-      const base64Image = canvas.toDataURL('image/jpeg', 0.9).split(',')[1]; 
-      const history = messages.map(m => `${m.role}: ${m.text}`);
-      const responseText = await analyzeFrame(base64Image, userMsg.text, history);
+        
+        // --- SECURE FRAME EXTRACTION ---
+        // This operation (toDataURL) is the one that triggers SecurityError if CORS is not valid.
+        // We wrap it in a specific try/catch to provide a friendly AI fallback response.
+        try {
+           ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+           const base64Image = canvas.toDataURL('image/jpeg', 0.9).split(',')[1]; 
+           
+           const history = messages.map(m => `${m.role}: ${m.text}`);
+           const responseText = await analyzeFrame(base64Image, userMsg.text, history);
 
+           const aiMsg: ChatMessage = {
+             id: (Date.now() + 1).toString(),
+             role: 'model',
+             text: responseText,
+             timestamp: new Date()
+           };
+           setMessages(prev => [...prev, aiMsg]);
+
+        } catch (securityError: any) {
+           console.warn("Frame extraction blocked by browser security (CORS)", securityError);
+           const aiMsg: ChatMessage = {
+             id: (Date.now() + 1).toString(),
+             role: 'model',
+             text: "🚫 **No puedo ver este video**. \n\nDebido a restricciones de seguridad del navegador (CORS), no puedo extraer imágenes de este archivo remoto. \n\n**Solución:** Si tienes el archivo original, súbelo nuevamente desde este dispositivo para habilitar el análisis de IA.",
+             timestamp: new Date()
+           };
+           setMessages(prev => [...prev, aiMsg]);
+        }
+      }
+    } catch (error) {
+      console.error("General analysis error", error);
       const aiMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        text: responseText,
+        text: "Hubo un error técnico al intentar analizar. Por favor intenta de nuevo.",
         timestamp: new Date()
       };
       setMessages(prev => [...prev, aiMsg]);
-    } catch (error) {
-      console.error(error);
     } finally {
       setIsAnalyzing(false);
     }
@@ -680,10 +700,16 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
                   className="relative max-h-full max-w-full flex-1 flex justify-center"
                 >
                   <video 
+                     key={`v1-${primaryCors}`}
                      ref={videoRef}
                      src={video.url}
                      className="max-h-full max-w-full object-contain pointer-events-none" 
                      playsInline loop={false}
+                     crossOrigin={primaryCors}
+                     onError={() => {
+                       console.warn("Primary Video Error (Likely CORS). Retrying without crossOrigin...");
+                       if (primaryCors === "anonymous") setPrimaryCors(undefined);
+                     }}
                   />
                   {/* Drawing Layer Video 1 */}
                   <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
@@ -700,10 +726,16 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ video, onBack }) =
                 {secondaryUrl && (
                   <div className="relative max-h-full max-w-full flex-1 flex justify-center border-l border-white/10 pl-1">
                      <video 
+                        key={`v2-${secondaryCors}`}
                         ref={videoRef2}
                         src={secondaryUrl}
                         className="max-h-full max-w-full object-contain pointer-events-none" 
                         playsInline loop={false}
+                        crossOrigin={secondaryCors}
+                        onError={() => {
+                          console.warn("Secondary Video Error (Likely CORS). Retrying without crossOrigin...");
+                          if (secondaryCors === "anonymous") setSecondaryCors(undefined);
+                        }}
                      />
                      <button onClick={closeSecondary} className="absolute top-2 right-2 p-1 bg-black/50 text-white rounded-full pointer-events-auto hover:bg-red-600 z-50">
                         <X size={14} />
